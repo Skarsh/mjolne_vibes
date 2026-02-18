@@ -111,6 +111,7 @@ Implementation notes:
 
 Goals:
 
+- Implement real `fetch_url` execution (replace phase-2 stubbed payload) with allowlist-aware fetch behavior.
 - Emit trace logs for step count, tools used, and latency.
 - Add evaluation harness driven by `eval/cases.yaml`.
 - Track pass/fail criteria:
@@ -130,6 +131,7 @@ Status:
 Implementation notes:
 
 - Turn trace summary logging is implemented in `src/agent/mod.rs`, emitting step count, tool usage, and model/tool/turn latency metrics per turn (2026-02-18).
+- Next task: implement live `fetch_url` retrieval in `src/tools/mod.rs` (currently returns `status: "stubbed_in_phase_2"`).
 
 ## Phase 5: Packaging + Next Step
 

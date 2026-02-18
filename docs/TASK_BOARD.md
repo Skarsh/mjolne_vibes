@@ -53,6 +53,7 @@ Progress notes (2026-02-18):
 
 ## Upcoming: Phase 4
 
+- [ ] Implement live `fetch_url` content retrieval (replace phase-2 stub payload, keep allowlist/safety checks).
 - [ ] Add evaluation harness driven by `eval/cases.yaml`.
 - [ ] Add initial evaluation cases and pass/fail checks.
 
