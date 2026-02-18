@@ -12,6 +12,7 @@ pub const DEFAULT_MAX_TOOL_CALLS: u32 = 8;
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_MODEL_TIMEOUT_MS: u64 = 20_000;
 pub const DEFAULT_MODEL_MAX_RETRIES: u32 = 2;
+pub const DEFAULT_FETCH_URL_ALLOWED_DOMAINS: &str = "example.com";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelProvider {
@@ -64,6 +65,7 @@ pub struct AgentSettings {
     pub max_steps: u32,
     pub max_tool_calls: u32,
     pub tool_timeout_ms: u64,
+    pub fetch_url_allowed_domains: Vec<String>,
     pub model_timeout_ms: u64,
     pub model_max_retries: u32,
 }
@@ -115,6 +117,12 @@ impl AgentSettings {
             "TOOL_TIMEOUT_MS must be greater than 0"
         );
 
+        let fetch_url_allowed_domains = parse_domain_allowlist(
+            "FETCH_URL_ALLOWED_DOMAINS",
+            &env::var("FETCH_URL_ALLOWED_DOMAINS")
+                .unwrap_or_else(|_| DEFAULT_FETCH_URL_ALLOWED_DOMAINS.to_owned()),
+        )?;
+
         let model_timeout_ms = parse_u64_env("MODEL_TIMEOUT_MS", DEFAULT_MODEL_TIMEOUT_MS)?;
         ensure!(
             model_timeout_ms > 0,
@@ -131,6 +139,7 @@ impl AgentSettings {
             max_steps,
             max_tool_calls,
             tool_timeout_ms,
+            fetch_url_allowed_domains,
             model_timeout_ms,
             model_max_retries,
         })
@@ -163,5 +172,82 @@ fn parse_u64_env(name: &str, default: u64) -> Result<u64> {
             .parse::<u64>()
             .with_context(|| format!("failed to parse {name} as u64")),
         Err(_) => Ok(default),
+    }
+}
+
+fn parse_domain_allowlist(name: &str, raw: &str) -> Result<Vec<String>> {
+    let mut domains = raw
+        .split(',')
+        .filter_map(|domain| {
+            let normalized = domain.trim().trim_matches('.').to_ascii_lowercase();
+            if normalized.is_empty() {
+                None
+            } else {
+                Some(normalized)
+            }
+        })
+        .collect::<Vec<_>>();
+
+    ensure!(
+        !domains.is_empty(),
+        "{name} must contain at least one domain"
+    );
+
+    for domain in &domains {
+        ensure!(
+            domain
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-'),
+            "{name} contains invalid domain `{domain}`"
+        );
+    }
+
+    domains.sort();
+    domains.dedup();
+    Ok(domains)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_domain_allowlist;
+
+    #[test]
+    fn parse_domain_allowlist_normalizes_and_deduplicates() {
+        let domains = parse_domain_allowlist(
+            "FETCH_URL_ALLOWED_DOMAINS",
+            "Example.com, api.example.com, example.com, .docs.rs.",
+        )
+        .expect("allowlist should parse");
+
+        assert_eq!(
+            domains,
+            vec![
+                "api.example.com".to_owned(),
+                "docs.rs".to_owned(),
+                "example.com".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_domain_allowlist_rejects_empty_input() {
+        let error = parse_domain_allowlist("FETCH_URL_ALLOWED_DOMAINS", " , ,, ")
+            .expect_err("empty values should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("FETCH_URL_ALLOWED_DOMAINS must contain at least one domain")
+        );
+    }
+
+    #[test]
+    fn parse_domain_allowlist_rejects_invalid_characters() {
+        let error = parse_domain_allowlist("FETCH_URL_ALLOWED_DOMAINS", "exa*mple.com")
+            .expect_err("invalid domain should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("FETCH_URL_ALLOWED_DOMAINS contains invalid domain")
+        );
     }
 }

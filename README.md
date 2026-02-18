@@ -21,7 +21,8 @@ Current implementation includes:
 - typed v1 tool argument schemas with strict unknown-field rejection,
 - phase-2 tool registry/dispatcher with structured dispatch errors,
 - iterative agent loop that handles model tool calls and feeds tool outputs back to the model,
-- per-tool timeout handling and max tool-call cap per turn.
+- per-tool timeout handling and max tool-call cap per turn,
+- `fetch_url` domain allowlist guardrail (`FETCH_URL_ALLOWED_DOMAINS`).
 
 ## Provider strategy
 
@@ -88,6 +89,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 AGENT_MAX_STEPS=8
 AGENT_MAX_TOOL_CALLS=8
 TOOL_TIMEOUT_MS=5000
+FETCH_URL_ALLOWED_DOMAINS=example.com
 MODEL_TIMEOUT_MS=20000
 MODEL_MAX_RETRIES=2
 ```
@@ -101,6 +103,7 @@ OPENAI_API_KEY=...
 AGENT_MAX_STEPS=8
 AGENT_MAX_TOOL_CALLS=8
 TOOL_TIMEOUT_MS=5000
+FETCH_URL_ALLOWED_DOMAINS=example.com
 MODEL_TIMEOUT_MS=20000
 MODEL_MAX_RETRIES=2
 ```

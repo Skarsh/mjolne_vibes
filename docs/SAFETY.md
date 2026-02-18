@@ -20,7 +20,7 @@ Safety and guardrail policy for v1.
 
 ## `fetch_url(url: string)`
 
-- Enforce strict domain allowlist.
+- Enforce strict domain allowlist (`FETCH_URL_ALLOWED_DOMAINS`).
 - Enforce byte-size cap.
 - Enforce timeout.
 - Validate content type where applicable.

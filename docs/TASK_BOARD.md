@@ -41,10 +41,10 @@ Progress notes (2026-02-18):
 ## Completed tasks: Phase 3
 
 - [x] Add minimal interactive CLI REPL mode for manual testing. (2026-02-18, `cargo run -- repl` with multi-turn session history and `/help`, `/reset`, `/exit`; quiet terminal logs by default with `--verbose` opt-in)
+- [x] Add URL/domain allowlist for `fetch_url`. (2026-02-18, configurable `FETCH_URL_ALLOWED_DOMAINS` enforced in tool dispatch with explicit policy-block errors for disallowed hosts)
 
 ## Upcoming: Phase 3
 
-- [ ] Add URL/domain allowlist for `fetch_url`.
 - [ ] Add confirmation gate for sensitive writes via `save_note`.
 - [ ] Add input/output length limits.
 - [ ] Add additional loop protections for runaway behavior.

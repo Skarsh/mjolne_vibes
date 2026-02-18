@@ -70,6 +70,10 @@ Current Phase 2 implementation status:
 - Agent loop integration for tool calls is implemented in `src/agent/mod.rs`.
 - Per-tool timeout and per-turn tool-call cap are implemented in `src/agent/mod.rs` and configured through `src/config.rs` (`TOOL_TIMEOUT_MS`, `AGENT_MAX_TOOL_CALLS`).
 
+Current Phase 3 safety implementation status:
+
+- `fetch_url` domain allowlist enforcement is implemented in `src/tools/mod.rs`, with the allowed domains sourced from `src/config.rs` (`FETCH_URL_ALLOWED_DOMAINS`).
+
 ## Boundary rules
 
 - `model/client.rs` must not encode business/tool policy.

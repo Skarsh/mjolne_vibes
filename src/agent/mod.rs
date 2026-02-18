@@ -171,6 +171,7 @@ impl ChatSession {
                         &mut self.conversation,
                         calls,
                         self.settings.tool_timeout_ms,
+                        &self.settings.fetch_url_allowed_domains,
                     )
                     .await;
                 }
@@ -221,6 +222,7 @@ async fn append_tool_results(
     messages: &mut Vec<ModelMessage>,
     calls: Vec<ModelToolCall>,
     tool_timeout_ms: u64,
+    fetch_url_allowed_domains: &[String],
 ) {
     for call in calls {
         let tool_name = call.name.clone();
@@ -230,6 +232,7 @@ async fn append_tool_results(
             &tool_call_id,
             call.arguments,
             tool_timeout_ms,
+            fetch_url_allowed_domains,
         )
         .await;
 
@@ -246,10 +249,13 @@ async fn dispatch_tool_call_with_timeout(
     tool_call_id: &str,
     raw_args: serde_json::Value,
     tool_timeout_ms: u64,
+    fetch_url_allowed_domains: &[String],
 ) -> String {
     let tool_name_for_task = tool_name.to_owned();
-    let dispatch_future =
-        tokio::task::spawn_blocking(move || dispatch_tool_call(&tool_name_for_task, raw_args));
+    let allowlist = fetch_url_allowed_domains.to_vec();
+    let dispatch_future = tokio::task::spawn_blocking(move || {
+        dispatch_tool_call(&tool_name_for_task, raw_args, &allowlist)
+    });
 
     let timeout_result = with_timeout(dispatch_future, tool_timeout_ms).await;
     match timeout_result {
@@ -447,6 +453,7 @@ mod tests {
             max_steps: 8,
             max_tool_calls: 8,
             tool_timeout_ms: 5_000,
+            fetch_url_allowed_domains: vec!["example.com".to_owned()],
             model_timeout_ms: 20_000,
             model_max_retries: 0,
         }

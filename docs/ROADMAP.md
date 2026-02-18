@@ -101,6 +101,7 @@ Implementation notes:
 
 - Interactive REPL mode is implemented via `cargo run -- repl` with multi-turn session history and slash commands (`/help`, `/reset`, `/exit`) in `src/main.rs` and `src/agent/mod.rs` (2026-02-18).
 - REPL terminal logging is quiet by default (`warn`+), with opt-in verbose terminal logging via `cargo run -- repl --verbose`; logs are also written to rolling files under `logs/` (2026-02-18).
+- `fetch_url` domain allowlist policy is implemented with configurable `FETCH_URL_ALLOWED_DOMAINS`; disallowed hosts are blocked with explicit policy errors in tool dispatch (`src/tools/mod.rs`) and wired from runtime config (`src/config.rs`) (2026-02-18).
 
 ## Phase 4: Observability + Evaluations
 
