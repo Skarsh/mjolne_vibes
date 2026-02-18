@@ -1,0 +1,80 @@
+# Architecture
+
+Target architecture for v1 Rust AI agent.
+
+## System intent
+
+- CLI-first agent that can chat and call a small tool set.
+- Deterministic execution boundaries with limits and safety policies.
+- Clear module boundaries to isolate model API drift and tool complexity.
+- Provider-flexible model access: local Ollama default, OpenAI fallback.
+
+## Planned module layout
+
+```text
+src/
+  main.rs               # CLI entry point
+  config.rs             # env/config loading and defaults
+  agent/mod.rs          # orchestration loop
+  model/client.rs       # model API wrapper
+  tools/mod.rs          # tool registry and dispatch
+  tools/search_notes.rs
+  tools/fetch_url.rs
+  tools/save_note.rs
+  state/mod.rs          # session state and execution limits
+eval/
+  cases.yaml            # evaluation dataset
+```
+
+## Agent loop contract
+
+1. Build request from system instructions, history, and user input.
+2. Send request to model client.
+3. If tool calls are returned:
+   - validate tool name and typed args
+   - apply policy checks
+   - execute tools with timeout/retry policy
+   - return tool outputs to model
+4. Repeat until final text response or stop condition.
+5. Return final answer plus trace metadata.
+
+## Stop conditions
+
+- Final text response produced.
+- `max_steps` reached.
+- Hard timeout reached.
+- Policy block triggered.
+
+## Tool contracts (v1)
+
+Use exactly these tool interfaces:
+
+- `search_notes(query: string, limit: u8)`
+- `fetch_url(url: string)`
+- `save_note(title: string, body: string)`
+
+Tool design rules:
+
+- Minimal, strongly typed args.
+- Reject unknown fields.
+- Return machine-readable JSON.
+
+## Boundary rules
+
+- `model/client.rs` must not encode business/tool policy.
+- `model/client.rs` should hide provider-specific details from the orchestration loop.
+- `tools/*` must not directly mutate global agent state.
+- `agent/mod.rs` owns loop control and step accounting.
+- `config.rs` is the source of runtime limits.
+- `state/mod.rs` tracks per-session state only for v1.
+
+## Model provider policy
+
+- Default local development provider: Ollama.
+- Supported fallback provider: OpenAI.
+- Provider should be selected by configuration (`MODEL_PROVIDER` + `MODEL`), not hardcoded.
+
+## Extension direction after v1
+
+- Optional migration to `rig` if it clearly reduces orchestration boilerplate.
+- Optional HTTP layer should reuse the same core loop and policies.
