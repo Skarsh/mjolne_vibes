@@ -11,6 +11,12 @@ Local development runbook for this repository.
 
 ## Environment variables
 
+Start from template:
+
+```bash
+cp .env.example .env
+```
+
 Recommended local-first profile:
 
 ```env
@@ -55,14 +61,34 @@ cargo run
 Formatting/lint/tests:
 
 ```bash
-cargo fmt --check
-cargo clippy -- -D warnings
-cargo test
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
 ```
 
-## Expected near-term command (Phase 0)
+## Pre-commit hooks
 
-Planned CLI call:
+Install hooks:
+
+```bash
+pip install pre-commit
+pre-commit install
+pre-commit install --hook-type pre-push
+```
+
+Run all hooks manually:
+
+```bash
+pre-commit run --all-files
+pre-commit run --all-files --hook-stage pre-push
+```
+
+Hook policy:
+
+- `pre-commit`: file hygiene + `cargo fmt` check.
+- `pre-push`: `cargo clippy` and `cargo test`.
+
+## Current CLI command
 
 ```bash
 cargo run -- chat "hello"

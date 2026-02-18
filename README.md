@@ -1,57 +1,48 @@
 # mjolne_vibes
 
-Rust-first AI agent project with a CLI-first v1 and optional HTTP service later.
+`mjolne_vibes` is a Rust project for building a practical, CLI-first AI agent.
 
-## Current status
+The target agent should:
 
-- Project stage: bootstrap (pre-Phase 0 implementation).
-- Source plan: `AI_AGENT_RUST_PLAN.md` (generated February 18, 2026).
-- Current code: minimal Rust binary scaffold.
+- chat with the user,
+- call a small set of typed tools,
+- produce grounded responses from tool outputs,
+- enforce execution and safety limits.
 
-## v1 goals
+## Current state
 
-- Chat with the user.
-- Call a small set of typed tools.
-- Return grounded answers from tool outputs.
-- Enforce guardrails: retries, timeouts, step limits, safety policies.
+Current implementation includes:
 
-## v1 non-goals
+- CLI entrypoint with `chat "<message>"`,
+- typed runtime config from environment,
+- local-first model provider setup (`ollama` default, `openai` fallback),
+- placeholder agent module for Phase 1 integration.
 
-- Long-term memory database.
-- Background autonomous workers.
-- GUI frontend.
-- Multi-tenant auth and billing.
+## Provider strategy
 
-## Documentation index
+Default development flow is local Ollama for cheap/free iteration.
 
-- `AGENTS.md`: operating contract for AI coding agents in this repo.
-- `docs/ROADMAP.md`: phased implementation plan and acceptance criteria.
-- `docs/ARCHITECTURE.md`: system boundaries and agent loop contract.
-- `docs/WORKFLOW.md`: agentic execution workflow for tasks and changes.
-- `docs/TESTING.md`: test strategy, eval criteria, and quality gates.
-- `docs/SAFETY.md`: tool safety policy and blocked-action behavior.
-- `docs/RUNBOOK.md`: local setup and common development commands.
-- `docs/TASK_BOARD.md`: active task queue and execution order.
-
-## Model provider strategy
-
-- Default dev provider: local Ollama (cheap/free local iteration).
-- Recommended starter local models:
+- Recommended starter models:
   - `qwen2.5:3b`
   - `llama3.2:3b`
-- OpenAI remains a supported fallback for higher-quality evals and comparison.
-- As of February 18, 2026, `gpt-4.1-mini` is still available.
+- OpenAI is supported as a fallback path when needed.
 
 ## Quickstart
 
 1. Install Rust stable (`rustup`, `cargo`).
-2. Install Ollama and pull a local model:
+2. Install Ollama and pull a model:
 
 ```bash
 ollama pull qwen2.5:3b
 ```
 
-3. Add environment variables for local-first development:
+3. Copy the env template:
+
+```bash
+cp .env.example .env
+```
+
+4. Configure environment (local-first profile):
 
 ```env
 MODEL_PROVIDER=ollama
@@ -61,7 +52,7 @@ AGENT_MAX_STEPS=8
 TOOL_TIMEOUT_MS=5000
 ```
 
-4. Optional OpenAI fallback profile:
+Optional OpenAI profile:
 
 ```env
 MODEL_PROVIDER=openai
@@ -69,24 +60,32 @@ MODEL=gpt-4.1-mini
 OPENAI_API_KEY=...
 ```
 
-5. Build and run:
+5. Run:
 
 ```bash
-cargo check
-cargo run
+cargo run -- chat "hello"
 ```
 
-Note: `chat` CLI command and model/tool loop are planned in Phase 0-2.
-
-## Quality gates (target before v1)
+## Development quality checks
 
 ```bash
-cargo fmt --check
-cargo clippy -- -D warnings
-cargo test
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
 ```
 
-## Working model
+## Automation
 
-Use `AGENTS.md` + docs in `docs/` as the primary execution system.  
-`AI_AGENT_RUST_PLAN.md` remains the baseline source that these docs operationalize.
+- GitHub Actions CI: `.github/workflows/ci.yml`
+- GitHub Actions pre-commit checks: `.github/workflows/pre-commit.yml`
+- Local hook config: `.pre-commit-config.yaml`
+
+## Contributing docs
+
+- `AGENTS.md`
+- `docs/ARCHITECTURE.md`
+- `docs/TESTING.md`
+- `docs/SAFETY.md`
+- `docs/RUNBOOK.md`
+- `docs/ROADMAP.md`
+- `docs/TASK_BOARD.md`
