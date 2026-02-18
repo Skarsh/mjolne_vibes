@@ -4,7 +4,7 @@ Execution roadmap for v1. This is the working implementation sequence.
 
 ## Current phase
 
-- Active phase: `Phase 1 - Basic Model Chat (No tools)`
+- Active phase: `Phase 2 - Tool Calling Loop`
 
 ## Phase 0: Skeleton + Config
 
@@ -44,14 +44,14 @@ Acceptance criteria:
 
 Status:
 
-- [ ] In progress
+- [x] Completed (2026-02-18)
 
 Implementation notes:
 
 - Phase 1 validation depends on local Ollama setup and reachable `OLLAMA_BASE_URL`.
 - Model client abstraction and both provider paths are implemented.
 - Retry/backoff and total request timeout are implemented.
-- Manual 10-run local stability validation remains pending.
+- Manual 10-run local stability validation completed on local Ollama with `10/10` successful runs (2026-02-18).
 
 ## Phase 2: Tool Calling Loop
 
