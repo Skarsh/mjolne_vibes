@@ -18,7 +18,8 @@ Current implementation includes:
 - local-first model provider setup (`ollama` default, `openai` fallback),
 - model client integration with retry/backoff and request timeout,
 - typed v1 tool argument schemas with strict unknown-field rejection,
-- phase-2 tool registry/dispatcher scaffolding with structured dispatch errors.
+- phase-2 tool registry/dispatcher with structured dispatch errors,
+- iterative agent loop that handles model tool calls and feeds tool outputs back to the model.
 
 ## Provider strategy
 

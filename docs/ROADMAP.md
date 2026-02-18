@@ -75,6 +75,7 @@ Implementation notes:
 
 - Tool schema types for `search_notes`, `fetch_url`, and `save_note` are implemented in `src/tools/mod.rs` with `serde(deny_unknown_fields)` and unit tests (2026-02-18).
 - Tool registry and dispatcher are implemented in `src/tools/mod.rs` (`tool_definitions`, `dispatch_tool_call`) with structured unknown-tool/invalid-arg errors and stubbed phase-2 tool payloads (2026-02-18).
+- Iterative tool-call loop is implemented in `src/agent/mod.rs`, including model tool-call handling and tool output feedback messages until final response or `max_steps` (2026-02-18).
 
 ## Phase 3: Guardrails + Safety
 

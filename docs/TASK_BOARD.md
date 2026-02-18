@@ -35,7 +35,7 @@ Progress notes (2026-02-18):
 
 - [x] Define tool schema types for three v1 tools. (2026-02-18, strict typed args with unknown-field rejection tests in `src/tools/mod.rs`)
 - [x] Add tool registry and dispatcher. (2026-02-18, `dispatch_tool_call` + registry list + unit coverage for unknown tool/invalid args/valid dispatch)
-- [ ] Implement tool-call iteration loop.
+- [x] Implement tool-call iteration loop. (2026-02-18, `agent::run_chat` now iterates model responses, executes tool calls, and feeds tool outputs back into context until final text or `max_steps`)
 - [ ] Add per-tool timeout and tool-call cap.
 
 ## Usage notes

@@ -64,7 +64,7 @@ Current Phase 2 implementation status:
 
 - Typed tool args are implemented in `src/tools/mod.rs` with `serde(deny_unknown_fields)`.
 - Tool registry and dispatcher are implemented in `src/tools/mod.rs` via `tool_definitions` and `dispatch_tool_call`.
-- Agent loop integration for tool calls is pending.
+- Agent loop integration for tool calls is implemented in `src/agent/mod.rs`.
 
 ## Boundary rules
 
