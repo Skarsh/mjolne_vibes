@@ -16,7 +16,7 @@ Current implementation includes:
 - CLI entrypoint with `chat "<message>"`,
 - typed runtime config from environment,
 - local-first model provider setup (`ollama` default, `openai` fallback),
-- placeholder agent module for Phase 1 integration.
+- model client integration with retry/backoff and request timeout.
 
 ## Provider strategy
 
@@ -50,6 +50,8 @@ MODEL=qwen2.5:3b
 OLLAMA_BASE_URL=http://localhost:11434
 AGENT_MAX_STEPS=8
 TOOL_TIMEOUT_MS=5000
+MODEL_TIMEOUT_MS=20000
+MODEL_MAX_RETRIES=2
 ```
 
 Optional OpenAI profile:
@@ -58,6 +60,8 @@ Optional OpenAI profile:
 MODEL_PROVIDER=openai
 MODEL=gpt-4.1-mini
 OPENAI_API_KEY=...
+MODEL_TIMEOUT_MS=20000
+MODEL_MAX_RETRIES=2
 ```
 
 5. Run:

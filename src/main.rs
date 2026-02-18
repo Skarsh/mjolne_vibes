@@ -4,8 +4,9 @@ use tracing_subscriber::EnvFilter;
 
 mod agent;
 mod config;
+mod model;
 
-use crate::agent::run_chat_placeholder;
+use crate::agent::run_chat;
 use crate::config::AgentSettings;
 
 #[derive(Debug, Parser)]
@@ -29,7 +30,7 @@ async fn main() -> Result<()> {
     let settings = AgentSettings::from_env().context("failed to load configuration")?;
 
     match cli.command {
-        Commands::Chat { message } => run_chat_placeholder(&settings, &message).await?,
+        Commands::Chat { message } => run_chat(&settings, &message).await?,
     }
 
     Ok(())

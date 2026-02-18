@@ -14,12 +14,14 @@ Completed in Phase 0 (2026-02-18):
 
 ## Current tasks: Phase 1
 
-- [ ] Add model client wrapper module.
-- [ ] Implement Ollama request path (`MODEL_PROVIDER=ollama`).
-- [ ] Implement OpenAI request path (`MODEL_PROVIDER=openai`).
-- [ ] Add basic system/user prompt request path.
-- [ ] Add retry/backoff for transient failures.
-- [ ] Add request timeout handling.
+- [ ] Set up local Ollama for validation (install/start service, run `ollama pull qwen2.5:3b`, verify `OLLAMA_BASE_URL` is reachable).
+- [x] Add model client wrapper module. (2026-02-18)
+- [x] Implement Ollama request path (`MODEL_PROVIDER=ollama`). (2026-02-18)
+- [x] Implement OpenAI request path (`MODEL_PROVIDER=openai`). (2026-02-18)
+- [x] Add basic system/user prompt request path. (2026-02-18)
+- [x] Add retry/backoff for transient failures. (2026-02-18)
+- [x] Add request timeout handling. (2026-02-18)
+- [ ] Run manual stability validation across 10 prompts with local Ollama reachable.
 
 ## Upcoming: Phase 2
 

@@ -28,6 +28,7 @@ Status:
 
 Goals:
 
+- Ensure local Ollama dev runtime is set up (`ollama serve` + pulled model) for manual validation.
 - Implement model client wrapper.
 - Implement Ollama chat path first for local development.
 - Add OpenAI path as fallback using same client abstraction.
@@ -44,6 +45,13 @@ Acceptance criteria:
 Status:
 
 - [ ] In progress
+
+Implementation notes:
+
+- Phase 1 validation depends on local Ollama setup and reachable `OLLAMA_BASE_URL`.
+- Model client abstraction and both provider paths are implemented.
+- Retry/backoff and total request timeout are implemented.
+- Manual 10-run local stability validation remains pending.
 
 ## Phase 2: Tool Calling Loop
 

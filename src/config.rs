@@ -9,6 +9,8 @@ pub const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5:3b";
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 pub const DEFAULT_MAX_STEPS: u32 = 8;
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 5_000;
+pub const DEFAULT_MODEL_TIMEOUT_MS: u64 = 20_000;
+pub const DEFAULT_MODEL_MAX_RETRIES: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelProvider {
@@ -60,6 +62,8 @@ pub struct AgentSettings {
     pub openai_api_key: Option<String>,
     pub max_steps: u32,
     pub tool_timeout_ms: u64,
+    pub model_timeout_ms: u64,
+    pub model_max_retries: u32,
 }
 
 impl AgentSettings {
@@ -103,6 +107,14 @@ impl AgentSettings {
             "TOOL_TIMEOUT_MS must be greater than 0"
         );
 
+        let model_timeout_ms = parse_u64_env("MODEL_TIMEOUT_MS", DEFAULT_MODEL_TIMEOUT_MS)?;
+        ensure!(
+            model_timeout_ms > 0,
+            "MODEL_TIMEOUT_MS must be greater than 0"
+        );
+
+        let model_max_retries = parse_u32_env("MODEL_MAX_RETRIES", DEFAULT_MODEL_MAX_RETRIES)?;
+
         Ok(Self {
             model_provider,
             model,
@@ -110,6 +122,8 @@ impl AgentSettings {
             openai_api_key,
             max_steps,
             tool_timeout_ms,
+            model_timeout_ms,
+            model_max_retries,
         })
     }
 }
