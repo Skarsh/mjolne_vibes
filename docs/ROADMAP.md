@@ -125,7 +125,11 @@ Acceptance criteria:
 
 Status:
 
-- [ ] Not started
+- [ ] In progress
+
+Implementation notes:
+
+- Turn trace summary logging is implemented in `src/agent/mod.rs`, emitting step count, tool usage, and model/tool/turn latency metrics per turn (2026-02-18).
 
 ## Phase 5: Packaging + Next Step
 

@@ -78,6 +78,10 @@ Current Phase 3 safety implementation status:
 - Input/output character limits are enforced in `src/agent/mod.rs` using runtime settings from `src/config.rs` (`AGENT_MAX_INPUT_CHARS`, `AGENT_MAX_OUTPUT_CHARS`).
 - `save_note` writes to a controlled notes directory (`NOTES_DIR`) with overwrite confirmation gating (`SAVE_NOTE_ALLOW_OVERWRITE`) in `src/tools/mod.rs`, with runtime config loaded via `src/config.rs`.
 
+Current Phase 4 observability implementation status:
+
+- Turn-level trace summary logs are emitted from `src/agent/mod.rs`, including step count, tool usage, and model/tool/turn latency metrics.
+
 ## Boundary rules
 
 - `model/client.rs` must not encode business/tool policy.

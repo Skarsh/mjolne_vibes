@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use serde_json::json;
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::time::timeout;
 use tracing::{info, warn};
 
@@ -118,6 +118,27 @@ struct ChatSession {
     conversation: Vec<ModelMessage>,
 }
 
+#[derive(Debug, Default)]
+struct TurnTrace {
+    input_chars: usize,
+    output_chars: Option<usize>,
+    steps_executed: u32,
+    model_calls: u32,
+    tool_calls: u32,
+    total_model_latency: Duration,
+    total_tool_latency: Duration,
+    tool_names: Vec<String>,
+}
+
+impl TurnTrace {
+    fn with_input(input: &str) -> Self {
+        Self {
+            input_chars: input.chars().count(),
+            ..Self::default()
+        }
+    }
+}
+
 impl ChatSession {
     fn new(settings: &AgentSettings) -> Self {
         let settings = settings.clone();
@@ -144,12 +165,22 @@ impl ChatSession {
     }
 
     async fn run_turn(&mut self, message: &str) -> Result<String> {
+        let turn_started_at = Instant::now();
+        let mut trace = TurnTrace::with_input(message);
+        let result = self.run_turn_inner(message, &mut trace).await;
+        log_turn_trace(&trace, turn_started_at.elapsed(), result.as_ref().err());
+        result
+    }
+
+    async fn run_turn_inner(&mut self, message: &str, trace: &mut TurnTrace) -> Result<String> {
         enforce_input_char_limit(message, self.settings.max_input_chars)?;
         self.conversation.push(ModelMessage::user(message));
         let mut total_tool_calls: u32 = 0;
         let mut consecutive_tool_steps: u32 = 0;
 
         for step in 1..=self.settings.max_steps {
+            trace.steps_executed = step;
+            let model_call_started_at = Instant::now();
             let response = self
                 .client
                 .chat_with_messages(&self.conversation, &self.tools)
@@ -160,6 +191,10 @@ impl ChatSession {
                         self.settings.model_provider
                     )
                 })?;
+            let model_call_latency = model_call_started_at.elapsed();
+            trace.model_calls = trace.model_calls.saturating_add(1);
+            trace.total_model_latency =
+                trace.total_model_latency.saturating_add(model_call_latency);
 
             match response {
                 ChatResponse::FinalText { text } => {
@@ -168,6 +203,7 @@ impl ChatSession {
                         &text,
                         self.settings.max_output_chars,
                     )?;
+                    trace.output_chars = Some(text.chars().count());
                     self.conversation
                         .push(ModelMessage::assistant_text(text.clone()));
                     return Ok(text);
@@ -178,6 +214,7 @@ impl ChatSession {
                 } => {
                     info!(
                         step,
+                        model_call_latency_ms = model_call_latency.as_millis(),
                         tool_call_count = calls.len(),
                         "model requested tool calls"
                     );
@@ -218,9 +255,10 @@ impl ChatSession {
                         assistant_content,
                         calls.clone(),
                     ));
-                    append_tool_results(
+                    let tool_trace = append_tool_results(
                         &mut self.conversation,
                         calls,
+                        step,
                         self.settings.tool_timeout_ms,
                         self.settings.max_output_chars,
                         &self.tool_runtime,
@@ -229,6 +267,11 @@ impl ChatSession {
                     .with_context(|| {
                         format!("failed while appending tool results at step {step}")
                     })?;
+                    trace.tool_calls = trace.tool_calls.saturating_add(tool_trace.tool_calls);
+                    trace.total_tool_latency = trace
+                        .total_tool_latency
+                        .saturating_add(tool_trace.total_tool_latency);
+                    trace.tool_names.extend(tool_trace.tool_names);
                 }
             }
         }
@@ -238,6 +281,56 @@ impl ChatSession {
             self.settings.max_steps
         ))
     }
+}
+
+#[derive(Debug, Default)]
+struct ToolExecutionTrace {
+    tool_calls: u32,
+    total_tool_latency: Duration,
+    tool_names: Vec<String>,
+}
+
+fn log_turn_trace(trace: &TurnTrace, turn_latency: Duration, error: Option<&anyhow::Error>) {
+    let tool_names_summary = summarize_tool_names(&trace.tool_names);
+
+    match error {
+        Some(error) => warn!(
+            turn_latency_ms = turn_latency.as_millis(),
+            steps_executed = trace.steps_executed,
+            model_calls = trace.model_calls,
+            tool_calls = trace.tool_calls,
+            total_model_latency_ms = trace.total_model_latency.as_millis(),
+            total_tool_latency_ms = trace.total_tool_latency.as_millis(),
+            input_chars = trace.input_chars,
+            output_chars = trace.output_chars.unwrap_or(0),
+            tools = %tool_names_summary,
+            error = %error,
+            "turn trace summary (failed)"
+        ),
+        None => info!(
+            turn_latency_ms = turn_latency.as_millis(),
+            steps_executed = trace.steps_executed,
+            model_calls = trace.model_calls,
+            tool_calls = trace.tool_calls,
+            total_model_latency_ms = trace.total_model_latency.as_millis(),
+            total_tool_latency_ms = trace.total_tool_latency.as_millis(),
+            input_chars = trace.input_chars,
+            output_chars = trace.output_chars.unwrap_or(0),
+            tools = %tool_names_summary,
+            "turn trace summary"
+        ),
+    }
+}
+
+fn summarize_tool_names(tool_names: &[String]) -> String {
+    if tool_names.is_empty() {
+        return "none".to_owned();
+    }
+
+    let mut unique = tool_names.to_vec();
+    unique.sort();
+    unique.dedup();
+    unique.join(",")
 }
 
 fn repl_help_lines() -> &'static [&'static str] {
@@ -373,13 +466,17 @@ fn enforce_char_limit(subject: &str, text: &str, max_chars: u32, env_var: &str) 
 async fn append_tool_results(
     messages: &mut Vec<ModelMessage>,
     calls: Vec<ModelToolCall>,
+    step: u32,
     tool_timeout_ms: u64,
     max_output_chars: u32,
     tool_runtime: &ToolRuntimeConfig,
-) -> Result<()> {
+) -> Result<ToolExecutionTrace> {
+    let mut trace = ToolExecutionTrace::default();
+
     for call in calls {
         let tool_name = call.name.clone();
         let tool_call_id = call.id.clone();
+        let tool_started_at = Instant::now();
         let content = dispatch_tool_call_with_timeout(
             &tool_name,
             &tool_call_id,
@@ -388,12 +485,25 @@ async fn append_tool_results(
             tool_runtime,
         )
         .await;
+        let tool_latency = tool_started_at.elapsed();
 
         enforce_output_char_limit(
             &format!("tool `{tool_name}` output"),
             &content,
             max_output_chars,
         )?;
+
+        info!(
+            step,
+            tool_name = %tool_name,
+            tool_call_id = %tool_call_id,
+            tool_latency_ms = tool_latency.as_millis(),
+            "tool call completed"
+        );
+        trace.tool_calls = trace.tool_calls.saturating_add(1);
+        trace.total_tool_latency = trace.total_tool_latency.saturating_add(tool_latency);
+        trace.tool_names.push(tool_name.clone());
+
         messages.push(ModelMessage::tool_result(
             content,
             Some(tool_call_id),
@@ -401,7 +511,7 @@ async fn append_tool_results(
         ));
     }
 
-    Ok(())
+    Ok(trace)
 }
 
 async fn dispatch_tool_call_with_timeout(

@@ -202,3 +202,14 @@ Log files:
 - If using Ollama, ensure service is reachable at `OLLAMA_BASE_URL` and model is pulled.
 - If using OpenAI, verify API key and model string.
 - If loops/timeouts occur, inspect configured limits and trace logs.
+
+## Observability notes
+
+Turn trace summary logs now include:
+- steps executed
+- model call count
+- tool call count
+- total model latency
+- total tool latency
+- end-to-end turn latency
+- tool names used

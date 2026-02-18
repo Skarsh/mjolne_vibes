@@ -24,6 +24,7 @@ Current implementation includes:
 - per-tool timeout handling and max tool-call cap per turn,
 - max tool-calls per model response step (`AGENT_MAX_TOOL_CALLS_PER_STEP`),
 - max consecutive tool-step cap per turn (`AGENT_MAX_CONSECUTIVE_TOOL_STEPS`),
+- turn trace logging for step count, tool usage, and model/tool/turn latency,
 - configurable input/output character limits (`AGENT_MAX_INPUT_CHARS`, `AGENT_MAX_OUTPUT_CHARS`),
 - `save_note` writes markdown into a controlled directory (`NOTES_DIR`) with overwrite confirmation gating (`SAVE_NOTE_ALLOW_OVERWRITE`),
 - `fetch_url` domain allowlist guardrail (`FETCH_URL_ALLOWED_DOMAINS`).
@@ -139,6 +140,7 @@ cargo run -- repl --verbose
 - REPL defaults to quiet terminal logging (`warn`+).
 - Use `cargo run -- repl --verbose` to see info/debug logs in terminal.
 - Detailed logs are written to `logs/mjolne_vibes.log.YYYY-MM-DD` by default.
+- Turn trace summary logs include step count, tool usage, and model/tool/turn latency.
 - Optional env overrides:
   - `RUST_LOG=...` (console filter)
   - `MJOLNE_FILE_LOG=...` (file filter)

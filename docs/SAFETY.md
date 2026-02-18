@@ -61,6 +61,7 @@ Log per turn:
 
 - step count
 - tool calls and outcomes
+- model and tool latency metrics
 - retry count
 - timeout events
 - policy block events
