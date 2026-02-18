@@ -29,7 +29,8 @@ Safety and guardrail policy for v1.
 ## `save_note(title: string, body: string)`
 
 - Write only inside controlled notes directory.
-- Require confirmation path for sensitive destinations.
+- Treat overwrite of an existing note as sensitive and require confirmation.
+- Confirmation path: set `SAVE_NOTE_ALLOW_OVERWRITE=true` to permit overwrite.
 - Reject path traversal and disallowed paths.
 
 ## `search_notes(query: string, limit: u8)`

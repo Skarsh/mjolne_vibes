@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
 use std::io::{self, Write};
+use std::path::PathBuf;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{info, warn};
@@ -10,8 +11,8 @@ use crate::model::client::{
     ChatResponse, ModelClient, ModelMessage, ModelToolCall, ModelToolDefinition,
 };
 use crate::tools::{
-    FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME, dispatch_tool_call,
-    tool_definitions,
+    FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME, ToolRuntimeConfig,
+    dispatch_tool_call, tool_definitions,
 };
 
 const SYSTEM_PROMPT: &str = "You are a concise, reliable Rust AI assistant. Be helpful, truthful, and use tools when needed.";
@@ -26,6 +27,8 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
         max_tool_calls = settings.max_tool_calls,
         max_input_chars = settings.max_input_chars,
         max_output_chars = settings.max_output_chars,
+        notes_dir = %settings.notes_dir,
+        save_note_allow_overwrite = settings.save_note_allow_overwrite,
         tool_timeout_ms = settings.tool_timeout_ms,
         "executing one-shot chat turn"
     );
@@ -49,6 +52,8 @@ pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
         max_tool_calls = settings.max_tool_calls,
         max_input_chars = settings.max_input_chars,
         max_output_chars = settings.max_output_chars,
+        notes_dir = %settings.notes_dir,
+        save_note_allow_overwrite = settings.save_note_allow_overwrite,
         tool_timeout_ms = settings.tool_timeout_ms,
         "starting interactive repl session"
     );
@@ -100,6 +105,7 @@ struct ChatSession {
     settings: AgentSettings,
     client: ModelClient,
     tools: Vec<ModelToolDefinition>,
+    tool_runtime: ToolRuntimeConfig,
     conversation: Vec<ModelMessage>,
 }
 
@@ -108,12 +114,18 @@ impl ChatSession {
         let settings = settings.clone();
         let client = ModelClient::new(settings.clone());
         let tools = build_model_tool_definitions();
+        let tool_runtime = ToolRuntimeConfig::new(
+            settings.fetch_url_allowed_domains.clone(),
+            PathBuf::from(settings.notes_dir.clone()),
+            settings.save_note_allow_overwrite,
+        );
         let conversation = vec![ModelMessage::system(SYSTEM_PROMPT)];
 
         Self {
             settings,
             client,
             tools,
+            tool_runtime,
             conversation,
         }
     }
@@ -189,7 +201,7 @@ impl ChatSession {
                         calls,
                         self.settings.tool_timeout_ms,
                         self.settings.max_output_chars,
-                        &self.settings.fetch_url_allowed_domains,
+                        &self.tool_runtime,
                     )
                     .await
                     .with_context(|| {
@@ -273,7 +285,7 @@ async fn append_tool_results(
     calls: Vec<ModelToolCall>,
     tool_timeout_ms: u64,
     max_output_chars: u32,
-    fetch_url_allowed_domains: &[String],
+    tool_runtime: &ToolRuntimeConfig,
 ) -> Result<()> {
     for call in calls {
         let tool_name = call.name.clone();
@@ -283,7 +295,7 @@ async fn append_tool_results(
             &tool_call_id,
             call.arguments,
             tool_timeout_ms,
-            fetch_url_allowed_domains,
+            tool_runtime,
         )
         .await;
 
@@ -307,12 +319,12 @@ async fn dispatch_tool_call_with_timeout(
     tool_call_id: &str,
     raw_args: serde_json::Value,
     tool_timeout_ms: u64,
-    fetch_url_allowed_domains: &[String],
+    tool_runtime: &ToolRuntimeConfig,
 ) -> String {
     let tool_name_for_task = tool_name.to_owned();
-    let allowlist = fetch_url_allowed_domains.to_vec();
+    let runtime = tool_runtime.clone();
     let dispatch_future = tokio::task::spawn_blocking(move || {
-        dispatch_tool_call(&tool_name_for_task, raw_args, &allowlist)
+        dispatch_tool_call(&tool_name_for_task, raw_args, &runtime)
     });
 
     let timeout_result = with_timeout(dispatch_future, tool_timeout_ms).await;
@@ -530,6 +542,8 @@ mod tests {
             max_output_chars: 8_000,
             tool_timeout_ms: 5_000,
             fetch_url_allowed_domains: vec!["example.com".to_owned()],
+            notes_dir: "notes".to_owned(),
+            save_note_allow_overwrite: false,
             model_timeout_ms: 20_000,
             model_max_retries: 0,
         }

@@ -43,10 +43,10 @@ Progress notes (2026-02-18):
 - [x] Add minimal interactive CLI REPL mode for manual testing. (2026-02-18, `cargo run -- repl` with multi-turn session history and `/help`, `/reset`, `/exit`; quiet terminal logs by default with `--verbose` opt-in)
 - [x] Add URL/domain allowlist for `fetch_url`. (2026-02-18, configurable `FETCH_URL_ALLOWED_DOMAINS` enforced in tool dispatch with explicit policy-block errors for disallowed hosts)
 - [x] Add input/output length limits. (2026-02-18, configurable `AGENT_MAX_INPUT_CHARS` and `AGENT_MAX_OUTPUT_CHARS` enforced in the agent loop with explicit limit errors)
+- [x] Add confirmation gate for sensitive writes via `save_note`. (2026-02-18, writes restricted to `NOTES_DIR` with safe title normalization and overwrite confirmation gate via `SAVE_NOTE_ALLOW_OVERWRITE`)
 
 ## Upcoming: Phase 3
 
-- [ ] Add confirmation gate for sensitive writes via `save_note`.
 - [ ] Add additional loop protections for runaway behavior.
 
 ## Usage notes

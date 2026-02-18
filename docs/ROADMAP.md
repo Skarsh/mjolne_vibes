@@ -74,7 +74,7 @@ Status:
 Implementation notes:
 
 - Tool schema types for `search_notes`, `fetch_url`, and `save_note` are implemented in `src/tools/mod.rs` with `serde(deny_unknown_fields)` and unit tests (2026-02-18).
-- Tool registry and dispatcher are implemented in `src/tools/mod.rs` (`tool_definitions`, `dispatch_tool_call`) with structured unknown-tool/invalid-arg errors and stubbed phase-2 tool payloads (2026-02-18).
+- Tool registry and dispatcher are implemented in `src/tools/mod.rs` (`tool_definitions`, `dispatch_tool_call`) with structured unknown-tool/invalid-arg errors and phase-2 stubbed tool payloads (2026-02-18).
 - Iterative tool-call loop is implemented in `src/agent/mod.rs`, including model tool-call handling and tool output feedback messages until final response or `max_steps` (2026-02-18).
 - Per-tool timeout handling and per-turn tool-call cap are implemented in `src/agent/mod.rs` (timeout-wrapped dispatch + `AGENT_MAX_TOOL_CALLS` enforcement with explicit limit errors) and configurable through `src/config.rs` (2026-02-18).
 
@@ -103,6 +103,7 @@ Implementation notes:
 - REPL terminal logging is quiet by default (`warn`+), with opt-in verbose terminal logging via `cargo run -- repl --verbose`; logs are also written to rolling files under `logs/` (2026-02-18).
 - `fetch_url` domain allowlist policy is implemented with configurable `FETCH_URL_ALLOWED_DOMAINS`; disallowed hosts are blocked with explicit policy errors in tool dispatch (`src/tools/mod.rs`) and wired from runtime config (`src/config.rs`) (2026-02-18).
 - Input/output character limits are implemented with configurable `AGENT_MAX_INPUT_CHARS` and `AGENT_MAX_OUTPUT_CHARS`, enforced in the agent loop for user input and model/tool outputs (`src/agent/mod.rs`, `src/config.rs`) (2026-02-18).
+- `save_note` write safety is implemented with a controlled notes directory (`NOTES_DIR`), safe title-to-filename normalization, and confirmation gating for overwrite-sensitive writes (`SAVE_NOTE_ALLOW_OVERWRITE`) in tool dispatch (`src/tools/mod.rs`), configured via `src/config.rs` (2026-02-18).
 
 ## Phase 4: Observability + Evaluations
 

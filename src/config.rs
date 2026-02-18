@@ -15,6 +15,8 @@ pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_MODEL_TIMEOUT_MS: u64 = 20_000;
 pub const DEFAULT_MODEL_MAX_RETRIES: u32 = 2;
 pub const DEFAULT_FETCH_URL_ALLOWED_DOMAINS: &str = "example.com";
+pub const DEFAULT_NOTES_DIR: &str = "notes";
+pub const DEFAULT_SAVE_NOTE_ALLOW_OVERWRITE: bool = false;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelProvider {
@@ -70,6 +72,8 @@ pub struct AgentSettings {
     pub max_output_chars: u32,
     pub tool_timeout_ms: u64,
     pub fetch_url_allowed_domains: Vec<String>,
+    pub notes_dir: String,
+    pub save_note_allow_overwrite: bool,
     pub model_timeout_ms: u64,
     pub model_max_retries: u32,
 }
@@ -121,6 +125,12 @@ impl AgentSettings {
             &env::var("FETCH_URL_ALLOWED_DOMAINS")
                 .unwrap_or_else(|_| DEFAULT_FETCH_URL_ALLOWED_DOMAINS.to_owned()),
         )?;
+        let notes_dir = env::var("NOTES_DIR").unwrap_or_else(|_| DEFAULT_NOTES_DIR.to_owned());
+        ensure!(!notes_dir.trim().is_empty(), "NOTES_DIR cannot be empty");
+        let save_note_allow_overwrite = parse_bool_env(
+            "SAVE_NOTE_ALLOW_OVERWRITE",
+            DEFAULT_SAVE_NOTE_ALLOW_OVERWRITE,
+        )?;
 
         let model_timeout_ms =
             parse_positive_u64_env("MODEL_TIMEOUT_MS", DEFAULT_MODEL_TIMEOUT_MS)?;
@@ -138,6 +148,8 @@ impl AgentSettings {
             max_output_chars,
             tool_timeout_ms,
             fetch_url_allowed_domains,
+            notes_dir,
+            save_note_allow_overwrite,
             model_timeout_ms,
             model_max_retries,
         })
@@ -184,6 +196,23 @@ fn parse_positive_u64_env(name: &str, default: u64) -> Result<u64> {
     Ok(value)
 }
 
+fn parse_bool_env(name: &str, default: bool) -> Result<bool> {
+    match env::var(name) {
+        Ok(raw) => parse_bool_value(name, &raw),
+        Err(_) => Ok(default),
+    }
+}
+
+fn parse_bool_value(name: &str, raw: &str) -> Result<bool> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(anyhow!(
+            "failed to parse {name} as bool; expected one of true/false/1/0/yes/no/on/off"
+        )),
+    }
+}
+
 fn ensure_positive_u32(name: &str, value: u32) -> Result<u32> {
     ensure!(value > 0, "{name} must be greater than 0");
     Ok(value)
@@ -223,7 +252,7 @@ fn parse_domain_allowlist(name: &str, raw: &str) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_positive_u32, parse_domain_allowlist};
+    use super::{ensure_positive_u32, parse_bool_value, parse_domain_allowlist};
 
     #[test]
     fn ensure_positive_u32_accepts_positive_values() {
@@ -236,6 +265,23 @@ mod tests {
         let error = ensure_positive_u32("AGENT_MAX_STEPS", 0).expect_err("zero values should fail");
         assert!(error.to_string().contains("AGENT_MAX_STEPS"));
         assert!(error.to_string().contains("greater than 0"));
+    }
+
+    #[test]
+    fn parse_bool_value_accepts_truthy_and_falsy_values() {
+        assert!(parse_bool_value("SAVE_NOTE_ALLOW_OVERWRITE", "true").expect("true should parse"));
+        assert!(parse_bool_value("SAVE_NOTE_ALLOW_OVERWRITE", "1").expect("1 should parse"));
+        assert!(
+            !parse_bool_value("SAVE_NOTE_ALLOW_OVERWRITE", "false").expect("false should parse")
+        );
+        assert!(!parse_bool_value("SAVE_NOTE_ALLOW_OVERWRITE", "0").expect("0 should parse"));
+    }
+
+    #[test]
+    fn parse_bool_value_rejects_invalid_values() {
+        let error = parse_bool_value("SAVE_NOTE_ALLOW_OVERWRITE", "maybe")
+            .expect_err("invalid bool should fail");
+        assert!(error.to_string().contains("SAVE_NOTE_ALLOW_OVERWRITE"));
     }
 
     #[test]

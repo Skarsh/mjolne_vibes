@@ -74,6 +74,7 @@ Current Phase 3 safety implementation status:
 
 - `fetch_url` domain allowlist enforcement is implemented in `src/tools/mod.rs`, with the allowed domains sourced from `src/config.rs` (`FETCH_URL_ALLOWED_DOMAINS`).
 - Input/output character limits are enforced in `src/agent/mod.rs` using runtime settings from `src/config.rs` (`AGENT_MAX_INPUT_CHARS`, `AGENT_MAX_OUTPUT_CHARS`).
+- `save_note` writes to a controlled notes directory (`NOTES_DIR`) with overwrite confirmation gating (`SAVE_NOTE_ALLOW_OVERWRITE`) in `src/tools/mod.rs`, with runtime config loaded via `src/config.rs`.
 
 ## Boundary rules
 
