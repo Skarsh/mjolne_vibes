@@ -13,11 +13,12 @@ Target architecture for v1 Rust AI agent.
 
 ```text
 src/
+  lib.rs                # shared crate modules for bin + tests
   main.rs               # CLI entry point
   config.rs             # env/config loading and defaults
   agent/mod.rs          # orchestration loop
   model/client.rs       # model API wrapper
-  tools/mod.rs          # tool registry and dispatch
+  tools/mod.rs          # tool arg schemas, registry, and dispatch
   tools/search_notes.rs
   tools/fetch_url.rs
   tools/save_note.rs
@@ -58,6 +59,11 @@ Tool design rules:
 - Minimal, strongly typed args.
 - Reject unknown fields.
 - Return machine-readable JSON.
+
+Current Phase 2 implementation status:
+
+- Typed tool args are implemented in `src/tools/mod.rs` with `serde(deny_unknown_fields)`.
+- Executable tool registry/dispatch and loop integration are pending.
 
 ## Boundary rules
 

@@ -69,7 +69,11 @@ Acceptance criteria:
 
 Status:
 
-- [ ] Not started
+- [ ] In progress
+
+Implementation notes:
+
+- Tool schema types for `search_notes`, `fetch_url`, and `save_note` are implemented in `src/tools/mod.rs` with `serde(deny_unknown_fields)` and unit tests (2026-02-18).
 
 ## Phase 3: Guardrails + Safety
 

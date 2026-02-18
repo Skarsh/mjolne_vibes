@@ -33,7 +33,7 @@ Progress notes (2026-02-18):
 
 ## Upcoming: Phase 2
 
-- [ ] Define tool schema types for three v1 tools.
+- [x] Define tool schema types for three v1 tools. (2026-02-18, strict typed args with unknown-field rejection tests in `src/tools/mod.rs`)
 - [ ] Add tool registry and dispatcher.
 - [ ] Implement tool-call iteration loop.
 - [ ] Add per-tool timeout and tool-call cap.

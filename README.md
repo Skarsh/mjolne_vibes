@@ -16,7 +16,8 @@ Current implementation includes:
 - CLI entrypoint with `chat "<message>"`,
 - typed runtime config from environment,
 - local-first model provider setup (`ollama` default, `openai` fallback),
-- model client integration with retry/backoff and request timeout.
+- model client integration with retry/backoff and request timeout,
+- typed v1 tool argument schemas with strict unknown-field rejection.
 
 ## Provider strategy
 

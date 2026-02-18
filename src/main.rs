@@ -2,12 +2,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
-mod agent;
-mod config;
-mod model;
-
-use crate::agent::run_chat;
-use crate::config::AgentSettings;
+use mjolne_vibes::agent::run_chat;
+use mjolne_vibes::config::AgentSettings;
 
 #[derive(Debug, Parser)]
 #[command(name = "mjolne_vibes", about = "CLI-first Rust AI agent")]
