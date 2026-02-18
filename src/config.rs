@@ -8,6 +8,7 @@ pub const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 pub const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5:3b";
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 pub const DEFAULT_MAX_STEPS: u32 = 8;
+pub const DEFAULT_MAX_TOOL_CALLS: u32 = 8;
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_MODEL_TIMEOUT_MS: u64 = 20_000;
 pub const DEFAULT_MODEL_MAX_RETRIES: u32 = 2;
@@ -61,6 +62,7 @@ pub struct AgentSettings {
     pub ollama_base_url: String,
     pub openai_api_key: Option<String>,
     pub max_steps: u32,
+    pub max_tool_calls: u32,
     pub tool_timeout_ms: u64,
     pub model_timeout_ms: u64,
     pub model_max_retries: u32,
@@ -101,6 +103,12 @@ impl AgentSettings {
         let max_steps = parse_u32_env("AGENT_MAX_STEPS", DEFAULT_MAX_STEPS)?;
         ensure!(max_steps > 0, "AGENT_MAX_STEPS must be greater than 0");
 
+        let max_tool_calls = parse_u32_env("AGENT_MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS)?;
+        ensure!(
+            max_tool_calls > 0,
+            "AGENT_MAX_TOOL_CALLS must be greater than 0"
+        );
+
         let tool_timeout_ms = parse_u64_env("TOOL_TIMEOUT_MS", DEFAULT_TOOL_TIMEOUT_MS)?;
         ensure!(
             tool_timeout_ms > 0,
@@ -121,6 +129,7 @@ impl AgentSettings {
             ollama_base_url,
             openai_api_key,
             max_steps,
+            max_tool_calls,
             tool_timeout_ms,
             model_timeout_ms,
             model_max_retries,

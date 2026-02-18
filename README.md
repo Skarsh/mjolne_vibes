@@ -19,7 +19,8 @@ Current implementation includes:
 - model client integration with retry/backoff and request timeout,
 - typed v1 tool argument schemas with strict unknown-field rejection,
 - phase-2 tool registry/dispatcher with structured dispatch errors,
-- iterative agent loop that handles model tool calls and feeds tool outputs back to the model.
+- iterative agent loop that handles model tool calls and feeds tool outputs back to the model,
+- per-tool timeout handling and max tool-call cap per turn.
 
 ## Provider strategy
 
@@ -80,6 +81,7 @@ MODEL_PROVIDER=ollama
 MODEL=qwen2.5:3b
 OLLAMA_BASE_URL=http://localhost:11434
 AGENT_MAX_STEPS=8
+AGENT_MAX_TOOL_CALLS=8
 TOOL_TIMEOUT_MS=5000
 MODEL_TIMEOUT_MS=20000
 MODEL_MAX_RETRIES=2
@@ -91,6 +93,9 @@ Optional OpenAI profile:
 MODEL_PROVIDER=openai
 MODEL=gpt-4.1-mini
 OPENAI_API_KEY=...
+AGENT_MAX_STEPS=8
+AGENT_MAX_TOOL_CALLS=8
+TOOL_TIMEOUT_MS=5000
 MODEL_TIMEOUT_MS=20000
 MODEL_MAX_RETRIES=2
 ```

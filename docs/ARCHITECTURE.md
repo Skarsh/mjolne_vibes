@@ -43,6 +43,7 @@ eval/
 
 - Final text response produced.
 - `max_steps` reached.
+- Max tool-call budget reached.
 - Hard timeout reached.
 - Policy block triggered.
 
@@ -65,6 +66,7 @@ Current Phase 2 implementation status:
 - Typed tool args are implemented in `src/tools/mod.rs` with `serde(deny_unknown_fields)`.
 - Tool registry and dispatcher are implemented in `src/tools/mod.rs` via `tool_definitions` and `dispatch_tool_call`.
 - Agent loop integration for tool calls is implemented in `src/agent/mod.rs`.
+- Per-tool timeout and per-turn tool-call cap are implemented in `src/agent/mod.rs` and configured through `src/config.rs` (`TOOL_TIMEOUT_MS`, `AGENT_MAX_TOOL_CALLS`).
 
 ## Boundary rules
 

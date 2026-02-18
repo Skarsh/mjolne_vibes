@@ -11,8 +11,8 @@ Safety and guardrail policy for v1.
 ## Core limits
 
 - `max_steps` per turn.
-- Max tool calls per turn.
-- Per-tool timeout.
+- Max tool calls per turn (`AGENT_MAX_TOOL_CALLS`).
+- Per-tool timeout (`TOOL_TIMEOUT_MS`).
 - Overall turn timeout.
 - Input/output size limits.
 

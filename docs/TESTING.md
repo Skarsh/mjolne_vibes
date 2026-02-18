@@ -7,9 +7,9 @@ Testing strategy for v1 implementation.
 Run before considering a task complete:
 
 ```bash
-cargo fmt --check
-cargo clippy -- -D warnings
-cargo test
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
 ```
 
 ## Test layers

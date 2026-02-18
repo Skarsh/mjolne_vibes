@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use serde_json::json;
+use std::time::Duration;
+use tokio::time::timeout;
 use tracing::{info, warn};
 
 use crate::config::AgentSettings;
@@ -20,6 +22,8 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
         model_timeout_ms = settings.model_timeout_ms,
         model_max_retries = settings.model_max_retries,
         max_steps = settings.max_steps,
+        max_tool_calls = settings.max_tool_calls,
+        tool_timeout_ms = settings.tool_timeout_ms,
         "executing phase-2 chat loop"
     );
 
@@ -30,6 +34,7 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
         ModelMessage::system(SYSTEM_PROMPT),
         ModelMessage::user(message),
     ];
+    let mut total_tool_calls: u32 = 0;
 
     for step in 1..=settings.max_steps {
         let response = client
@@ -63,11 +68,17 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
                     ));
                 }
 
+                total_tool_calls = enforce_tool_call_cap(
+                    total_tool_calls,
+                    calls.len(),
+                    settings.max_tool_calls,
+                    step,
+                )?;
                 conversation.push(ModelMessage::assistant_tool_calls(
                     assistant_content.unwrap_or_default(),
                     calls.clone(),
                 ));
-                append_tool_results(&mut conversation, calls);
+                append_tool_results(&mut conversation, calls, settings.tool_timeout_ms).await;
             }
         }
     }
@@ -89,27 +100,43 @@ fn build_model_tool_definitions() -> Vec<ModelToolDefinition> {
         .collect()
 }
 
-fn append_tool_results(messages: &mut Vec<ModelMessage>, calls: Vec<ModelToolCall>) {
+fn enforce_tool_call_cap(
+    used_calls: u32,
+    requested_calls: usize,
+    max_tool_calls: u32,
+    step: u32,
+) -> Result<u32> {
+    let requested_calls = u32::try_from(requested_calls)
+        .map_err(|_| anyhow!("model requested too many tool calls to track at step {step}"))?;
+
+    let next_total = used_calls.checked_add(requested_calls).ok_or_else(|| {
+        anyhow!("tool call counter overflowed while enforcing limits at step {step}")
+    })?;
+
+    if next_total > max_tool_calls {
+        return Err(anyhow!(
+            "tool-call cap exceeded at step {step}: requested {requested_calls} calls, used {used_calls}, limit {max_tool_calls} (AGENT_MAX_TOOL_CALLS)"
+        ));
+    }
+
+    Ok(next_total)
+}
+
+async fn append_tool_results(
+    messages: &mut Vec<ModelMessage>,
+    calls: Vec<ModelToolCall>,
+    tool_timeout_ms: u64,
+) {
     for call in calls {
         let tool_name = call.name.clone();
         let tool_call_id = call.id.clone();
-
-        let content = match dispatch_tool_call(&tool_name, call.arguments) {
-            Ok(output) => output.payload.to_string(),
-            Err(error) => {
-                warn!(
-                    tool_name = %tool_name,
-                    tool_call_id = %tool_call_id,
-                    error = %error,
-                    "tool dispatch failed"
-                );
-
-                json!({
-                    "error": error.to_string()
-                })
-                .to_string()
-            }
-        };
+        let content = dispatch_tool_call_with_timeout(
+            &tool_name,
+            &tool_call_id,
+            call.arguments,
+            tool_timeout_ms,
+        )
+        .await;
 
         messages.push(ModelMessage::tool_result(
             content,
@@ -117,6 +144,70 @@ fn append_tool_results(messages: &mut Vec<ModelMessage>, calls: Vec<ModelToolCal
             Some(tool_name),
         ));
     }
+}
+
+async fn dispatch_tool_call_with_timeout(
+    tool_name: &str,
+    tool_call_id: &str,
+    raw_args: serde_json::Value,
+    tool_timeout_ms: u64,
+) -> String {
+    let tool_name_for_task = tool_name.to_owned();
+    let dispatch_future =
+        tokio::task::spawn_blocking(move || dispatch_tool_call(&tool_name_for_task, raw_args));
+
+    let timeout_result = with_timeout(dispatch_future, tool_timeout_ms).await;
+    match timeout_result {
+        Ok(Ok(Ok(output))) => output.payload.to_string(),
+        Ok(Ok(Err(error))) => {
+            warn!(
+                tool_name = %tool_name,
+                tool_call_id = %tool_call_id,
+                error = %error,
+                "tool dispatch failed"
+            );
+
+            json!({
+                "error": error.to_string()
+            })
+            .to_string()
+        }
+        Ok(Err(join_error)) => {
+            warn!(
+                tool_name = %tool_name,
+                tool_call_id = %tool_call_id,
+                error = %join_error,
+                "tool execution task failed"
+            );
+
+            json!({
+                "error": format!("tool `{tool_name}` execution failed: {join_error}")
+            })
+            .to_string()
+        }
+        Err(()) => {
+            warn!(
+                tool_name = %tool_name,
+                tool_call_id = %tool_call_id,
+                tool_timeout_ms,
+                "tool execution timed out"
+            );
+
+            json!({
+                "error": format!("tool `{tool_name}` timed out after {tool_timeout_ms}ms")
+            })
+            .to_string()
+        }
+    }
+}
+
+async fn with_timeout<F, T>(future: F, timeout_ms: u64) -> std::result::Result<T, ()>
+where
+    F: std::future::Future<Output = T>,
+{
+    timeout(Duration::from_millis(timeout_ms), future)
+        .await
+        .map_err(|_| ())
 }
 
 fn tool_description(tool_name: &str) -> &'static str {
@@ -166,7 +257,9 @@ fn tool_parameters_schema(tool_name: &str) -> serde_json::Value {
 
 #[cfg(test)]
 mod tests {
-    use super::build_model_tool_definitions;
+    use std::time::Duration;
+
+    use super::{build_model_tool_definitions, enforce_tool_call_cap, with_timeout};
     use crate::tools::{FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME};
 
     #[test]
@@ -191,5 +284,38 @@ mod tests {
                     == Some(false)
             );
         }
+    }
+
+    #[test]
+    fn enforce_tool_call_cap_accepts_totals_within_limit() {
+        let next_total = enforce_tool_call_cap(2, 3, 8, 4).expect("should stay within cap");
+        assert_eq!(next_total, 5);
+    }
+
+    #[test]
+    fn enforce_tool_call_cap_rejects_over_limit() {
+        let error = enforce_tool_call_cap(6, 3, 8, 2).expect_err("should reject cap overrun");
+        assert!(error.to_string().contains("tool-call cap exceeded"));
+    }
+
+    #[tokio::test]
+    async fn with_timeout_returns_value_before_deadline() {
+        let value = with_timeout(async { 42_u8 }, 10)
+            .await
+            .expect("future should complete");
+        assert_eq!(value, 42);
+    }
+
+    #[tokio::test]
+    async fn with_timeout_errors_when_deadline_expires() {
+        let result = with_timeout(
+            async {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                7_u8
+            },
+            1,
+        )
+        .await;
+        assert!(result.is_err());
     }
 }

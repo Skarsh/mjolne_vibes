@@ -2,7 +2,7 @@
 
 Execution task board for v1.
 
-## Current focus: Phase 2
+## Current focus: Phase 3
 
 Completed in Phase 0 (2026-02-18):
 
@@ -31,12 +31,19 @@ Progress notes (2026-02-18):
 - Verified end-to-end CLI call: `cargo run -- chat "hello"` returns model output.
 - Completed manual stability validation on local Ollama: `10/10` successful prompts (`cargo run --quiet -- chat ...`), with non-empty model responses on every run.
 
-## Upcoming: Phase 2
+## Completed tasks: Phase 2
 
 - [x] Define tool schema types for three v1 tools. (2026-02-18, strict typed args with unknown-field rejection tests in `src/tools/mod.rs`)
 - [x] Add tool registry and dispatcher. (2026-02-18, `dispatch_tool_call` + registry list + unit coverage for unknown tool/invalid args/valid dispatch)
 - [x] Implement tool-call iteration loop. (2026-02-18, `agent::run_chat` now iterates model responses, executes tool calls, and feeds tool outputs back into context until final text or `max_steps`)
-- [ ] Add per-tool timeout and tool-call cap.
+- [x] Add per-tool timeout and tool-call cap. (2026-02-18, `AGENT_MAX_TOOL_CALLS` enforced per turn in `agent::run_chat`; per-tool timeout applied during dispatch with structured timeout errors)
+
+## Upcoming: Phase 3
+
+- [ ] Add URL/domain allowlist for `fetch_url`.
+- [ ] Add confirmation gate for sensitive writes via `save_note`.
+- [ ] Add input/output length limits.
+- [ ] Add additional loop protections for runaway behavior.
 
 ## Usage notes
 
