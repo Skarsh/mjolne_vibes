@@ -9,6 +9,8 @@ pub const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5:3b";
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 pub const DEFAULT_MAX_STEPS: u32 = 8;
 pub const DEFAULT_MAX_TOOL_CALLS: u32 = 8;
+pub const DEFAULT_MAX_INPUT_CHARS: u32 = 4_000;
+pub const DEFAULT_MAX_OUTPUT_CHARS: u32 = 8_000;
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_MODEL_TIMEOUT_MS: u64 = 20_000;
 pub const DEFAULT_MODEL_MAX_RETRIES: u32 = 2;
@@ -64,6 +66,8 @@ pub struct AgentSettings {
     pub openai_api_key: Option<String>,
     pub max_steps: u32,
     pub max_tool_calls: u32,
+    pub max_input_chars: u32,
+    pub max_output_chars: u32,
     pub tool_timeout_ms: u64,
     pub fetch_url_allowed_domains: Vec<String>,
     pub model_timeout_ms: u64,
@@ -102,20 +106,15 @@ impl AgentSettings {
             );
         }
 
-        let max_steps = parse_u32_env("AGENT_MAX_STEPS", DEFAULT_MAX_STEPS)?;
-        ensure!(max_steps > 0, "AGENT_MAX_STEPS must be greater than 0");
+        let max_steps = parse_positive_u32_env("AGENT_MAX_STEPS", DEFAULT_MAX_STEPS)?;
+        let max_tool_calls =
+            parse_positive_u32_env("AGENT_MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS)?;
+        let max_input_chars =
+            parse_positive_u32_env("AGENT_MAX_INPUT_CHARS", DEFAULT_MAX_INPUT_CHARS)?;
+        let max_output_chars =
+            parse_positive_u32_env("AGENT_MAX_OUTPUT_CHARS", DEFAULT_MAX_OUTPUT_CHARS)?;
 
-        let max_tool_calls = parse_u32_env("AGENT_MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS)?;
-        ensure!(
-            max_tool_calls > 0,
-            "AGENT_MAX_TOOL_CALLS must be greater than 0"
-        );
-
-        let tool_timeout_ms = parse_u64_env("TOOL_TIMEOUT_MS", DEFAULT_TOOL_TIMEOUT_MS)?;
-        ensure!(
-            tool_timeout_ms > 0,
-            "TOOL_TIMEOUT_MS must be greater than 0"
-        );
+        let tool_timeout_ms = parse_positive_u64_env("TOOL_TIMEOUT_MS", DEFAULT_TOOL_TIMEOUT_MS)?;
 
         let fetch_url_allowed_domains = parse_domain_allowlist(
             "FETCH_URL_ALLOWED_DOMAINS",
@@ -123,11 +122,8 @@ impl AgentSettings {
                 .unwrap_or_else(|_| DEFAULT_FETCH_URL_ALLOWED_DOMAINS.to_owned()),
         )?;
 
-        let model_timeout_ms = parse_u64_env("MODEL_TIMEOUT_MS", DEFAULT_MODEL_TIMEOUT_MS)?;
-        ensure!(
-            model_timeout_ms > 0,
-            "MODEL_TIMEOUT_MS must be greater than 0"
-        );
+        let model_timeout_ms =
+            parse_positive_u64_env("MODEL_TIMEOUT_MS", DEFAULT_MODEL_TIMEOUT_MS)?;
 
         let model_max_retries = parse_u32_env("MODEL_MAX_RETRIES", DEFAULT_MODEL_MAX_RETRIES)?;
 
@@ -138,6 +134,8 @@ impl AgentSettings {
             openai_api_key,
             max_steps,
             max_tool_calls,
+            max_input_chars,
+            max_output_chars,
             tool_timeout_ms,
             fetch_url_allowed_domains,
             model_timeout_ms,
@@ -166,6 +164,11 @@ fn parse_u32_env(name: &str, default: u32) -> Result<u32> {
     }
 }
 
+fn parse_positive_u32_env(name: &str, default: u32) -> Result<u32> {
+    let value = parse_u32_env(name, default)?;
+    ensure_positive_u32(name, value)
+}
+
 fn parse_u64_env(name: &str, default: u64) -> Result<u64> {
     match env::var(name) {
         Ok(raw) => raw
@@ -173,6 +176,17 @@ fn parse_u64_env(name: &str, default: u64) -> Result<u64> {
             .with_context(|| format!("failed to parse {name} as u64")),
         Err(_) => Ok(default),
     }
+}
+
+fn parse_positive_u64_env(name: &str, default: u64) -> Result<u64> {
+    let value = parse_u64_env(name, default)?;
+    ensure!(value > 0, "{name} must be greater than 0");
+    Ok(value)
+}
+
+fn ensure_positive_u32(name: &str, value: u32) -> Result<u32> {
+    ensure!(value > 0, "{name} must be greater than 0");
+    Ok(value)
 }
 
 fn parse_domain_allowlist(name: &str, raw: &str) -> Result<Vec<String>> {
@@ -209,7 +223,20 @@ fn parse_domain_allowlist(name: &str, raw: &str) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_domain_allowlist;
+    use super::{ensure_positive_u32, parse_domain_allowlist};
+
+    #[test]
+    fn ensure_positive_u32_accepts_positive_values() {
+        let value = ensure_positive_u32("AGENT_MAX_STEPS", 3).expect("positive values should pass");
+        assert_eq!(value, 3);
+    }
+
+    #[test]
+    fn ensure_positive_u32_rejects_zero() {
+        let error = ensure_positive_u32("AGENT_MAX_STEPS", 0).expect_err("zero values should fail");
+        assert!(error.to_string().contains("AGENT_MAX_STEPS"));
+        assert!(error.to_string().contains("greater than 0"));
+    }
 
     #[test]
     fn parse_domain_allowlist_normalizes_and_deduplicates() {

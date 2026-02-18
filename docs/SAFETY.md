@@ -12,9 +12,10 @@ Safety and guardrail policy for v1.
 
 - `max_steps` per turn.
 - Max tool calls per turn (`AGENT_MAX_TOOL_CALLS`).
+- Input character limit (`AGENT_MAX_INPUT_CHARS`).
+- Output character limit (`AGENT_MAX_OUTPUT_CHARS`).
 - Per-tool timeout (`TOOL_TIMEOUT_MS`).
 - Overall turn timeout.
-- Input/output size limits.
 
 ## Tool safety policy
 
@@ -47,6 +48,7 @@ Safety and guardrail policy for v1.
 Block and return refusal reason when:
 
 - Tool violates allowlist/path policy.
+- Input/output exceeds configured size limits.
 - Execution exceeds configured limits.
 - Tool args fail schema/policy validation.
 

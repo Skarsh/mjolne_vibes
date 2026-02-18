@@ -22,6 +22,7 @@ Current implementation includes:
 - phase-2 tool registry/dispatcher with structured dispatch errors,
 - iterative agent loop that handles model tool calls and feeds tool outputs back to the model,
 - per-tool timeout handling and max tool-call cap per turn,
+- configurable input/output character limits (`AGENT_MAX_INPUT_CHARS`, `AGENT_MAX_OUTPUT_CHARS`),
 - `fetch_url` domain allowlist guardrail (`FETCH_URL_ALLOWED_DOMAINS`).
 
 ## Provider strategy
@@ -88,6 +89,8 @@ MODEL=qwen2.5:3b
 OLLAMA_BASE_URL=http://localhost:11434
 AGENT_MAX_STEPS=8
 AGENT_MAX_TOOL_CALLS=8
+AGENT_MAX_INPUT_CHARS=4000
+AGENT_MAX_OUTPUT_CHARS=8000
 TOOL_TIMEOUT_MS=5000
 FETCH_URL_ALLOWED_DOMAINS=example.com
 MODEL_TIMEOUT_MS=20000
@@ -102,6 +105,8 @@ MODEL=gpt-4.1-mini
 OPENAI_API_KEY=...
 AGENT_MAX_STEPS=8
 AGENT_MAX_TOOL_CALLS=8
+AGENT_MAX_INPUT_CHARS=4000
+AGENT_MAX_OUTPUT_CHARS=8000
 TOOL_TIMEOUT_MS=5000
 FETCH_URL_ALLOWED_DOMAINS=example.com
 MODEL_TIMEOUT_MS=20000

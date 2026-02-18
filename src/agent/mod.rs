@@ -24,6 +24,8 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
         model_max_retries = settings.model_max_retries,
         max_steps = settings.max_steps,
         max_tool_calls = settings.max_tool_calls,
+        max_input_chars = settings.max_input_chars,
+        max_output_chars = settings.max_output_chars,
         tool_timeout_ms = settings.tool_timeout_ms,
         "executing one-shot chat turn"
     );
@@ -45,6 +47,8 @@ pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
         model_max_retries = settings.model_max_retries,
         max_steps = settings.max_steps,
         max_tool_calls = settings.max_tool_calls,
+        max_input_chars = settings.max_input_chars,
+        max_output_chars = settings.max_output_chars,
         tool_timeout_ms = settings.tool_timeout_ms,
         "starting interactive repl session"
     );
@@ -119,6 +123,7 @@ impl ChatSession {
     }
 
     async fn run_turn(&mut self, message: &str) -> Result<String> {
+        enforce_input_char_limit(message, self.settings.max_input_chars)?;
         self.conversation.push(ModelMessage::user(message));
         let mut total_tool_calls: u32 = 0;
 
@@ -136,6 +141,11 @@ impl ChatSession {
 
             match response {
                 ChatResponse::FinalText { text } => {
+                    enforce_output_char_limit(
+                        "assistant final response",
+                        &text,
+                        self.settings.max_output_chars,
+                    )?;
                     self.conversation
                         .push(ModelMessage::assistant_text(text.clone()));
                     return Ok(text);
@@ -163,17 +173,28 @@ impl ChatSession {
                         step,
                     )?;
 
+                    let assistant_content = assistant_content.unwrap_or_default();
+                    enforce_output_char_limit(
+                        "assistant tool-call content",
+                        &assistant_content,
+                        self.settings.max_output_chars,
+                    )?;
+
                     self.conversation.push(ModelMessage::assistant_tool_calls(
-                        assistant_content.unwrap_or_default(),
+                        assistant_content,
                         calls.clone(),
                     ));
                     append_tool_results(
                         &mut self.conversation,
                         calls,
                         self.settings.tool_timeout_ms,
+                        self.settings.max_output_chars,
                         &self.settings.fetch_url_allowed_domains,
                     )
-                    .await;
+                    .await
+                    .with_context(|| {
+                        format!("failed while appending tool results at step {step}")
+                    })?;
                 }
             }
         }
@@ -218,12 +239,42 @@ fn enforce_tool_call_cap(
     Ok(next_total)
 }
 
+fn enforce_input_char_limit(input: &str, max_input_chars: u32) -> Result<()> {
+    enforce_char_limit(
+        "user input",
+        input,
+        max_input_chars,
+        "AGENT_MAX_INPUT_CHARS",
+    )
+}
+
+fn enforce_output_char_limit(output_name: &str, output: &str, max_output_chars: u32) -> Result<()> {
+    enforce_char_limit(
+        output_name,
+        output,
+        max_output_chars,
+        "AGENT_MAX_OUTPUT_CHARS",
+    )
+}
+
+fn enforce_char_limit(subject: &str, text: &str, max_chars: u32, env_var: &str) -> Result<()> {
+    let text_chars = text.chars().count();
+    if text_chars > max_chars as usize {
+        return Err(anyhow!(
+            "{subject} exceeded {env_var} limit: {text_chars} chars (max {max_chars})"
+        ));
+    }
+
+    Ok(())
+}
+
 async fn append_tool_results(
     messages: &mut Vec<ModelMessage>,
     calls: Vec<ModelToolCall>,
     tool_timeout_ms: u64,
+    max_output_chars: u32,
     fetch_url_allowed_domains: &[String],
-) {
+) -> Result<()> {
     for call in calls {
         let tool_name = call.name.clone();
         let tool_call_id = call.id.clone();
@@ -236,12 +287,19 @@ async fn append_tool_results(
         )
         .await;
 
+        enforce_output_char_limit(
+            &format!("tool `{tool_name}` output"),
+            &content,
+            max_output_chars,
+        )?;
         messages.push(ModelMessage::tool_result(
             content,
             Some(tool_call_id),
             Some(tool_name),
         ));
     }
+
+    Ok(())
 }
 
 async fn dispatch_tool_call_with_timeout(
@@ -360,7 +418,10 @@ fn tool_parameters_schema(tool_name: &str) -> serde_json::Value {
 mod tests {
     use std::time::Duration;
 
-    use super::{build_model_tool_definitions, enforce_tool_call_cap, with_timeout};
+    use super::{
+        build_model_tool_definitions, enforce_input_char_limit, enforce_output_char_limit,
+        enforce_tool_call_cap, with_timeout,
+    };
     use crate::config::{AgentSettings, ModelProvider};
     use crate::model::client::{MessageRole, ModelMessage};
     use crate::tools::{FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME};
@@ -399,6 +460,19 @@ mod tests {
     fn enforce_tool_call_cap_rejects_over_limit() {
         let error = enforce_tool_call_cap(6, 3, 8, 2).expect_err("should reject cap overrun");
         assert!(error.to_string().contains("tool-call cap exceeded"));
+    }
+
+    #[test]
+    fn enforce_input_char_limit_rejects_oversized_input() {
+        let error = enforce_input_char_limit("12345", 4).expect_err("input should fail");
+        assert!(error.to_string().contains("AGENT_MAX_INPUT_CHARS"));
+    }
+
+    #[test]
+    fn enforce_output_char_limit_rejects_oversized_output() {
+        let error = enforce_output_char_limit("assistant final response", "hello", 4)
+            .expect_err("output should fail");
+        assert!(error.to_string().contains("AGENT_MAX_OUTPUT_CHARS"));
     }
 
     #[tokio::test]
@@ -452,6 +526,8 @@ mod tests {
             openai_api_key: None,
             max_steps: 8,
             max_tool_calls: 8,
+            max_input_chars: 4_000,
+            max_output_chars: 8_000,
             tool_timeout_ms: 5_000,
             fetch_url_allowed_domains: vec!["example.com".to_owned()],
             model_timeout_ms: 20_000,
