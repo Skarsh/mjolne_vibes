@@ -2,7 +2,7 @@
 
 Execution task board for v1.
 
-## Current focus: Phase 3
+## Current focus: Phase 4
 
 Completed in Phase 0 (2026-02-18):
 
@@ -44,10 +44,13 @@ Progress notes (2026-02-18):
 - [x] Add URL/domain allowlist for `fetch_url`. (2026-02-18, configurable `FETCH_URL_ALLOWED_DOMAINS` enforced in tool dispatch with explicit policy-block errors for disallowed hosts)
 - [x] Add input/output length limits. (2026-02-18, configurable `AGENT_MAX_INPUT_CHARS` and `AGENT_MAX_OUTPUT_CHARS` enforced in the agent loop with explicit limit errors)
 - [x] Add confirmation gate for sensitive writes via `save_note`. (2026-02-18, writes restricted to `NOTES_DIR` with safe title normalization and overwrite confirmation gate via `SAVE_NOTE_ALLOW_OVERWRITE`)
+- [x] Add additional loop protections for runaway behavior. (2026-02-18, configurable `AGENT_MAX_CONSECUTIVE_TOOL_STEPS` blocks repeated tool-call-only iterations)
 
-## Upcoming: Phase 3
+## Upcoming: Phase 4
 
-- [ ] Add additional loop protections for runaway behavior.
+- [ ] Emit trace logs for step count, tools used, and latency.
+- [ ] Add evaluation harness driven by `eval/cases.yaml`.
+- [ ] Add initial evaluation cases and pass/fail checks.
 
 ## Usage notes
 

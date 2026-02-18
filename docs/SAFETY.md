@@ -12,6 +12,7 @@ Safety and guardrail policy for v1.
 
 - `max_steps` per turn.
 - Max tool calls per turn (`AGENT_MAX_TOOL_CALLS`).
+- Max consecutive tool-call steps per turn (`AGENT_MAX_CONSECUTIVE_TOOL_STEPS`).
 - Input character limit (`AGENT_MAX_INPUT_CHARS`).
 - Output character limit (`AGENT_MAX_OUTPUT_CHARS`).
 - Per-tool timeout (`TOOL_TIMEOUT_MS`).

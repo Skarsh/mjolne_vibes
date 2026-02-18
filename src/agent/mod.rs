@@ -25,6 +25,7 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
         model_max_retries = settings.model_max_retries,
         max_steps = settings.max_steps,
         max_tool_calls = settings.max_tool_calls,
+        max_consecutive_tool_steps = settings.max_consecutive_tool_steps,
         max_input_chars = settings.max_input_chars,
         max_output_chars = settings.max_output_chars,
         notes_dir = %settings.notes_dir,
@@ -50,6 +51,7 @@ pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
         model_max_retries = settings.model_max_retries,
         max_steps = settings.max_steps,
         max_tool_calls = settings.max_tool_calls,
+        max_consecutive_tool_steps = settings.max_consecutive_tool_steps,
         max_input_chars = settings.max_input_chars,
         max_output_chars = settings.max_output_chars,
         notes_dir = %settings.notes_dir,
@@ -143,6 +145,7 @@ impl ChatSession {
         enforce_input_char_limit(message, self.settings.max_input_chars)?;
         self.conversation.push(ModelMessage::user(message));
         let mut total_tool_calls: u32 = 0;
+        let mut consecutive_tool_steps: u32 = 0;
 
         for step in 1..=self.settings.max_steps {
             let response = self
@@ -182,6 +185,12 @@ impl ChatSession {
                             "model returned an empty tool call list at step {step}"
                         ));
                     }
+
+                    consecutive_tool_steps = enforce_consecutive_tool_step_cap(
+                        consecutive_tool_steps,
+                        self.settings.max_consecutive_tool_steps,
+                        step,
+                    )?;
 
                     total_tool_calls = enforce_tool_call_cap(
                         total_tool_calls,
@@ -282,6 +291,24 @@ fn enforce_tool_call_cap(
     if next_total > max_tool_calls {
         return Err(anyhow!(
             "tool-call cap exceeded at step {step}: requested {requested_calls} calls, used {used_calls}, limit {max_tool_calls} (AGENT_MAX_TOOL_CALLS)"
+        ));
+    }
+
+    Ok(next_total)
+}
+
+fn enforce_consecutive_tool_step_cap(
+    consecutive_tool_steps: u32,
+    max_consecutive_tool_steps: u32,
+    step: u32,
+) -> Result<u32> {
+    let next_total = consecutive_tool_steps.checked_add(1).ok_or_else(|| {
+        anyhow!("consecutive tool-step counter overflowed while enforcing limits at step {step}")
+    })?;
+
+    if next_total > max_consecutive_tool_steps {
+        return Err(anyhow!(
+            "consecutive tool-step cap exceeded at step {step}: consecutive {next_total}, limit {max_consecutive_tool_steps} (AGENT_MAX_CONSECUTIVE_TOOL_STEPS)"
         ));
     }
 
@@ -468,8 +495,9 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        build_model_tool_definitions, build_repl_tools_lines, enforce_input_char_limit,
-        enforce_output_char_limit, enforce_tool_call_cap, repl_help_lines, with_timeout,
+        build_model_tool_definitions, build_repl_tools_lines, enforce_consecutive_tool_step_cap,
+        enforce_input_char_limit, enforce_output_char_limit, enforce_tool_call_cap,
+        repl_help_lines, with_timeout,
     };
     use crate::config::{AgentSettings, ModelProvider};
     use crate::model::client::{MessageRole, ModelMessage};
@@ -509,6 +537,24 @@ mod tests {
     fn enforce_tool_call_cap_rejects_over_limit() {
         let error = enforce_tool_call_cap(6, 3, 8, 2).expect_err("should reject cap overrun");
         assert!(error.to_string().contains("tool-call cap exceeded"));
+    }
+
+    #[test]
+    fn enforce_consecutive_tool_step_cap_accepts_within_limit() {
+        let next_total =
+            enforce_consecutive_tool_step_cap(2, 4, 3).expect("should stay within cap");
+        assert_eq!(next_total, 3);
+    }
+
+    #[test]
+    fn enforce_consecutive_tool_step_cap_rejects_over_limit() {
+        let error =
+            enforce_consecutive_tool_step_cap(4, 4, 5).expect_err("should reject cap overrun");
+        assert!(
+            error
+                .to_string()
+                .contains("AGENT_MAX_CONSECUTIVE_TOOL_STEPS")
+        );
     }
 
     #[test]
@@ -589,6 +635,7 @@ mod tests {
             openai_api_key: None,
             max_steps: 8,
             max_tool_calls: 8,
+            max_consecutive_tool_steps: 4,
             max_input_chars: 4_000,
             max_output_chars: 8_000,
             tool_timeout_ms: 5_000,

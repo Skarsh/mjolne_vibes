@@ -4,7 +4,7 @@ Execution roadmap for v1. This is the working implementation sequence.
 
 ## Current phase
 
-- Active phase: `Phase 3 - Guardrails + Safety`
+- Active phase: `Phase 4 - Observability + Evaluations`
 
 ## Phase 0: Skeleton + Config
 
@@ -95,7 +95,7 @@ Acceptance criteria:
 
 Status:
 
-- [ ] In progress
+- [x] Completed (2026-02-18)
 
 Implementation notes:
 
@@ -104,6 +104,7 @@ Implementation notes:
 - `fetch_url` domain allowlist policy is implemented with configurable `FETCH_URL_ALLOWED_DOMAINS`; disallowed hosts are blocked with explicit policy errors in tool dispatch (`src/tools/mod.rs`) and wired from runtime config (`src/config.rs`) (2026-02-18).
 - Input/output character limits are implemented with configurable `AGENT_MAX_INPUT_CHARS` and `AGENT_MAX_OUTPUT_CHARS`, enforced in the agent loop for user input and model/tool outputs (`src/agent/mod.rs`, `src/config.rs`) (2026-02-18).
 - `save_note` write safety is implemented with a controlled notes directory (`NOTES_DIR`), safe title-to-filename normalization, and confirmation gating for overwrite-sensitive writes (`SAVE_NOTE_ALLOW_OVERWRITE`) in tool dispatch (`src/tools/mod.rs`), configured via `src/config.rs` (2026-02-18).
+- Additional loop protection is implemented via `AGENT_MAX_CONSECUTIVE_TOOL_STEPS`, blocking repeated tool-call-only iterations after a configurable threshold in `src/agent/mod.rs` with config from `src/config.rs` (2026-02-18).
 
 ## Phase 4: Observability + Evaluations
 

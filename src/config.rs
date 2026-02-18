@@ -9,6 +9,7 @@ pub const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5:3b";
 pub const DEFAULT_OPENAI_MODEL: &str = "gpt-4.1-mini";
 pub const DEFAULT_MAX_STEPS: u32 = 8;
 pub const DEFAULT_MAX_TOOL_CALLS: u32 = 8;
+pub const DEFAULT_MAX_CONSECUTIVE_TOOL_STEPS: u32 = 4;
 pub const DEFAULT_MAX_INPUT_CHARS: u32 = 4_000;
 pub const DEFAULT_MAX_OUTPUT_CHARS: u32 = 8_000;
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 5_000;
@@ -68,6 +69,7 @@ pub struct AgentSettings {
     pub openai_api_key: Option<String>,
     pub max_steps: u32,
     pub max_tool_calls: u32,
+    pub max_consecutive_tool_steps: u32,
     pub max_input_chars: u32,
     pub max_output_chars: u32,
     pub tool_timeout_ms: u64,
@@ -113,6 +115,10 @@ impl AgentSettings {
         let max_steps = parse_positive_u32_env("AGENT_MAX_STEPS", DEFAULT_MAX_STEPS)?;
         let max_tool_calls =
             parse_positive_u32_env("AGENT_MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS)?;
+        let max_consecutive_tool_steps = parse_positive_u32_env(
+            "AGENT_MAX_CONSECUTIVE_TOOL_STEPS",
+            DEFAULT_MAX_CONSECUTIVE_TOOL_STEPS,
+        )?;
         let max_input_chars =
             parse_positive_u32_env("AGENT_MAX_INPUT_CHARS", DEFAULT_MAX_INPUT_CHARS)?;
         let max_output_chars =
@@ -144,6 +150,7 @@ impl AgentSettings {
             openai_api_key,
             max_steps,
             max_tool_calls,
+            max_consecutive_tool_steps,
             max_input_chars,
             max_output_chars,
             tool_timeout_ms,
