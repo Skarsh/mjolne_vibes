@@ -83,9 +83,14 @@ pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
         match input {
             "/exit" | "/quit" => break,
             "/help" => {
-                println!("/help  Show commands");
-                println!("/reset Reset session history");
-                println!("/exit  Exit interactive mode");
+                for line in repl_help_lines() {
+                    println!("{line}");
+                }
+            }
+            "/tools" => {
+                for line in build_repl_tools_lines() {
+                    println!("{line}");
+                }
             }
             "/reset" => {
                 session.reset();
@@ -215,6 +220,38 @@ impl ChatSession {
             "agent stopped after reaching max_steps={} without final text response",
             self.settings.max_steps
         ))
+    }
+}
+
+fn repl_help_lines() -> &'static [&'static str] {
+    &[
+        "/help   Show commands",
+        "/tools  Show available tools",
+        "/reset  Reset session history",
+        "/exit   Exit interactive mode",
+    ]
+}
+
+fn build_repl_tools_lines() -> Vec<String> {
+    let mut lines = vec!["Available tools:".to_owned()];
+
+    for tool in tool_definitions() {
+        lines.push(format!(
+            "- {}: {}",
+            tool_signature(tool.name),
+            tool_description(tool.name)
+        ));
+    }
+
+    lines
+}
+
+fn tool_signature(tool_name: &str) -> &'static str {
+    match tool_name {
+        SEARCH_NOTES_TOOL_NAME => "search_notes(query: string, limit: u8)",
+        FETCH_URL_TOOL_NAME => "fetch_url(url: string)",
+        SAVE_NOTE_TOOL_NAME => "save_note(title: string, body: string)",
+        _ => "unknown()",
     }
 }
 
@@ -431,8 +468,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        build_model_tool_definitions, enforce_input_char_limit, enforce_output_char_limit,
-        enforce_tool_call_cap, with_timeout,
+        build_model_tool_definitions, build_repl_tools_lines, enforce_input_char_limit,
+        enforce_output_char_limit, enforce_tool_call_cap, repl_help_lines, with_timeout,
     };
     use crate::config::{AgentSettings, ModelProvider};
     use crate::model::client::{MessageRole, ModelMessage};
@@ -485,6 +522,20 @@ mod tests {
         let error = enforce_output_char_limit("assistant final response", "hello", 4)
             .expect_err("output should fail");
         assert!(error.to_string().contains("AGENT_MAX_OUTPUT_CHARS"));
+    }
+
+    #[test]
+    fn repl_help_lists_tools_command() {
+        let help = repl_help_lines();
+        assert!(help.iter().any(|line| line.contains("/tools")));
+    }
+
+    #[test]
+    fn repl_tools_lists_v1_tool_signatures() {
+        let tools = build_repl_tools_lines().join("\n");
+        assert!(tools.contains("search_notes(query: string, limit: u8)"));
+        assert!(tools.contains("fetch_url(url: string)"));
+        assert!(tools.contains("save_note(title: string, body: string)"));
     }
 
     #[tokio::test]

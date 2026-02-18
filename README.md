@@ -14,7 +14,7 @@ The target agent should:
 Current implementation includes:
 
 - CLI entrypoint with `chat "<message>"`,
-- interactive CLI REPL mode with slash commands (`/help`, `/reset`, `/exit`) and optional `--verbose` terminal logs,
+- interactive CLI REPL mode with slash commands (`/help`, `/tools`, `/reset`, `/exit`) and optional `--verbose` terminal logs,
 - typed runtime config from environment,
 - local-first model provider setup (`ollama` default, `openai` fallback),
 - model client integration with retry/backoff and request timeout,

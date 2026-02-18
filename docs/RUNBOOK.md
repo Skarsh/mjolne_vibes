@@ -184,6 +184,7 @@ cargo run -- repl --verbose
 REPL commands:
 
 - `/help`
+- `/tools`
 - `/reset`
 - `/exit`
 
