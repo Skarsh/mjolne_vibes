@@ -74,6 +74,17 @@ MODEL_TIMEOUT_MS=20000
 MODEL_MAX_RETRIES=2
 ```
 
+Optional logging overrides:
+
+```env
+# Console log filter (default depends on command; REPL is quiet unless --verbose)
+RUST_LOG=info,mjolne_vibes=debug
+# File log filter (default: info,mjolne_vibes=debug)
+MJOLNE_FILE_LOG=info,mjolne_vibes=debug
+# File log directory (default: logs)
+MJOLNE_LOG_DIR=logs
+```
+
 ## Local model setup (Ollama)
 
 Native Ollama install:
@@ -147,6 +158,28 @@ pre-commit run --all-files --hook-stage pre-push
 ```bash
 cargo run -- chat "hello"
 ```
+
+Interactive multi-turn mode:
+
+```bash
+cargo run -- repl
+```
+
+Interactive mode with terminal logs enabled:
+
+```bash
+cargo run -- repl --verbose
+```
+
+REPL commands:
+
+- `/help`
+- `/reset`
+- `/exit`
+
+Log files:
+
+- Default path pattern: `logs/mjolne_vibes.log.YYYY-MM-DD`
 
 ## Troubleshooting
 

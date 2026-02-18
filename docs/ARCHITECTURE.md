@@ -5,6 +5,8 @@ Target architecture for v1 Rust AI agent.
 ## System intent
 
 - CLI-first agent that can chat and call a small tool set.
+- Support both one-shot (`chat`) and interactive (`repl`) CLI usage with shared loop behavior.
+- Keep interactive (`repl`) terminal output low-noise by default while preserving detailed trace logs in file output.
 - Deterministic execution boundaries with limits and safety policies.
 - Clear module boundaries to isolate model API drift and tool complexity.
 - Provider-flexible model access: local Ollama default, OpenAI fallback.

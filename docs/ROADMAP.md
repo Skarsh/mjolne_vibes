@@ -82,6 +82,7 @@ Implementation notes:
 
 Goals:
 
+- Add a minimal interactive CLI REPL mode for faster manual validation.
 - Add URL/domain allowlist for `fetch_url`.
 - Add confirmation gate for sensitive writes via `save_note`.
 - Add input/output length limits.
@@ -94,7 +95,12 @@ Acceptance criteria:
 
 Status:
 
-- [ ] Not started
+- [ ] In progress
+
+Implementation notes:
+
+- Interactive REPL mode is implemented via `cargo run -- repl` with multi-turn session history and slash commands (`/help`, `/reset`, `/exit`) in `src/main.rs` and `src/agent/mod.rs` (2026-02-18).
+- REPL terminal logging is quiet by default (`warn`+), with opt-in verbose terminal logging via `cargo run -- repl --verbose`; logs are also written to rolling files under `logs/` (2026-02-18).
 
 ## Phase 4: Observability + Evaluations
 

@@ -68,6 +68,7 @@ Target:
 
 Minimum manual pass before v1:
 
+- Prefer running these in `cargo run -- repl` to speed up iterative validation.
 - 10 normal prompts.
 - 5 malformed/hostile prompts.
 - 5 prompts forcing blocked actions.

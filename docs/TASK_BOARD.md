@@ -38,6 +38,10 @@ Progress notes (2026-02-18):
 - [x] Implement tool-call iteration loop. (2026-02-18, `agent::run_chat` now iterates model responses, executes tool calls, and feeds tool outputs back into context until final text or `max_steps`)
 - [x] Add per-tool timeout and tool-call cap. (2026-02-18, `AGENT_MAX_TOOL_CALLS` enforced per turn in `agent::run_chat`; per-tool timeout applied during dispatch with structured timeout errors)
 
+## Completed tasks: Phase 3
+
+- [x] Add minimal interactive CLI REPL mode for manual testing. (2026-02-18, `cargo run -- repl` with multi-turn session history and `/help`, `/reset`, `/exit`; quiet terminal logs by default with `--verbose` opt-in)
+
 ## Upcoming: Phase 3
 
 - [ ] Add URL/domain allowlist for `fetch_url`.
