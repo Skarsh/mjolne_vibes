@@ -110,7 +110,7 @@ cargo test --all-targets --all-features
 ## Automation
 
 - GitHub Actions CI: `.github/workflows/ci.yml`
-- GitHub Actions pre-commit checks: `.github/workflows/pre-commit.yml`
+- CI workflow also runs pre-commit-stage hygiene checks (`pre-commit run --all-files`).
 - Repository git hooks: `.githooks/pre-commit`, `.githooks/pre-push`
 - Hook installer: `./scripts/install_hooks.sh`
 - Local pre-commit config (optional CI parity): `.pre-commit-config.yaml`

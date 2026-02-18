@@ -26,6 +26,7 @@ repos:
         entry: cargo fmt --all -- --check
         language: system
         pass_filenames: false
+        stages: [pre-push]
         always_run: true
 
       - id: cargo-clippy

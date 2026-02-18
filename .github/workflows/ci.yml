@@ -11,12 +11,17 @@ permissions:
   contents: read
 
 jobs:
-  rust:
-    name: Rust checks
+  checks:
+    name: CI checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -25,6 +30,12 @@ jobs:
 
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@v2
+
+      - name: Install pre-commit
+        run: pip install pre-commit
+
+      - name: Hygiene checks (pre-commit stage)
+        run: pre-commit run --all-files --show-diff-on-failure
 
       - name: Format check
         run: cargo fmt --all -- --check
