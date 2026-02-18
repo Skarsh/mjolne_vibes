@@ -217,13 +217,13 @@ Acceptance criteria:
 
 Start with exactly these:
 
-1. `search_notes(query: string, limit: u8)`  
+1. `search_notes(query: string, limit: u8)`
 Search local notes index (or a simple in-memory vector initially).
 
-2. `fetch_url(url: string)`  
+2. `fetch_url(url: string)`
 Fetch page content with strict allowlist and byte-size cap.
 
-3. `save_note(title: string, body: string)`  
+3. `save_note(title: string, body: string)`
 Save markdown note in a controlled directory.
 
 Design rules:
@@ -261,16 +261,16 @@ Quality gates before v1 complete:
 
 ## 9) Risk Register and Mitigations
 
-Risk: Tool-call loops or runaway iterations  
+Risk: Tool-call loops or runaway iterations
 Mitigation: hard `max_steps`, max tool calls per turn, timeout budget.
 
-Risk: Hallucinated tool outputs  
+Risk: Hallucinated tool outputs
 Mitigation: require explicit tool output echo in final response and validate references.
 
-Risk: Unsafe external fetches  
+Risk: Unsafe external fetches
 Mitigation: domain allowlist + size/time limits + content-type checks.
 
-Risk: API/model drift  
+Risk: API/model drift
 Mitigation: isolate model client module and keep integration tests around tool schema behavior.
 
 ## 10) Definition of Done (v1)

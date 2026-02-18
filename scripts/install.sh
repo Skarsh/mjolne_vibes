@@ -134,6 +134,13 @@ main() {
   log "Pulling model ${model}..."
   docker exec ollama ollama pull "$model"
 
+  if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    log "Installing repository git hooks..."
+    "${SCRIPT_DIR}/install_hooks.sh"
+  else
+    log "Skipping hook install because this directory is not a git work tree."
+  fi
+
   log "Bootstrap complete."
   printf '\n'
   printf 'Next step:\n'

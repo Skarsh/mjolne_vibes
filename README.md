@@ -37,6 +37,8 @@ Default development flow is local Ollama for cheap/free iteration.
 ./scripts/install.sh
 ```
 
+This bootstrap also installs repository git hooks from `.githooks/` so local pre-commit and pre-push checks run automatically.
+
 3. Run:
 
 ```bash
@@ -108,7 +110,9 @@ cargo test --all-targets --all-features
 
 - GitHub Actions CI: `.github/workflows/ci.yml`
 - GitHub Actions pre-commit checks: `.github/workflows/pre-commit.yml`
-- Local hook config: `.pre-commit-config.yaml`
+- Repository git hooks: `.githooks/pre-commit`, `.githooks/pre-push`
+- Hook installer: `./scripts/install_hooks.sh`
+- Local pre-commit config (optional CI parity): `.pre-commit-config.yaml`
 
 ## Contributing docs
 

@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "${repo_root}"
+
+echo "[pre-commit] Checking staged diff for whitespace and conflict-marker issues..."
+if ! git diff --cached --check -- .; then
+  echo "[pre-commit] Fix the issues above and re-stage changed files."
+  exit 1
+fi
+
+echo "[pre-commit] Running cargo fmt check..."
+cargo fmt --all -- --check

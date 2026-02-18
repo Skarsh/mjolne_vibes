@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "${repo_root}"
+
+echo "[pre-push] Checking tracked files for trailing whitespace..."
+if git grep -nI -E '[[:blank:]]$' -- .; then
+  echo "[pre-push] Remove trailing whitespace shown above."
+  exit 1
+fi
+
+echo "[pre-push] Checking tracked files for merge conflict markers..."
+if git grep -nI -E '^(<<<<<<<|=======|>>>>>>>)' -- .; then
+  echo "[pre-push] Resolve merge conflict markers shown above."
+  exit 1
+fi
+
+echo "[pre-push] Running cargo fmt check..."
+cargo fmt --all -- --check
+
+echo "[pre-push] Running clippy with warnings denied..."
+cargo clippy --all-targets --all-features -- -D warnings
+
+echo "[pre-push] Running test suite..."
+cargo test --all-targets --all-features

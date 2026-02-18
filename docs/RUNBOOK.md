@@ -23,6 +23,7 @@ What it does:
 - starts Ollama (`docker compose` when available, `docker run` fallback)
 - waits for `OLLAMA_BASE_URL` to be reachable
 - pulls local model (`MODEL` when `MODEL_PROVIDER=ollama`, otherwise `qwen2.5:3b`)
+- installs repository git hooks (`.githooks`) for local commit/push checks
 
 ## Cleanup local Ollama data
 
@@ -118,27 +119,26 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 ```
 
-## Pre-commit hooks
+## Git hooks
 
-Install hooks:
+Install repository-managed git hooks:
+
+```bash
+./scripts/install_hooks.sh
+```
+
+Installed hook behavior:
+
+- `pre-commit`: blocks trailing whitespace/conflict markers in staged changes and runs `cargo fmt --all -- --check`.
+- `pre-push`: blocks trailing whitespace/conflict markers across tracked files, then runs `cargo fmt --all -- --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test --all-targets --all-features`.
+
+Optional CI-parity setup with Python `pre-commit`:
 
 ```bash
 pip install pre-commit
-pre-commit install
-pre-commit install --hook-type pre-push
-```
-
-Run all hooks manually:
-
-```bash
 pre-commit run --all-files
 pre-commit run --all-files --hook-stage pre-push
 ```
-
-Hook policy:
-
-- `pre-commit`: file hygiene + `cargo fmt` check.
-- `pre-push`: `cargo clippy` and `cargo test`.
 
 ## Current CLI command
 
