@@ -46,6 +46,10 @@ Progress notes (2026-02-18):
 - [x] Add confirmation gate for sensitive writes via `save_note`. (2026-02-18, writes restricted to `NOTES_DIR` with safe title normalization and overwrite confirmation gate via `SAVE_NOTE_ALLOW_OVERWRITE`)
 - [x] Add additional loop protections for runaway behavior. (2026-02-18, configurable `AGENT_MAX_CONSECUTIVE_TOOL_STEPS` blocks repeated tool-call-only iterations)
 
+## Completed tasks: Phase 4
+
+- [x] Add per-step tool-call batching cap for safety hardening. (2026-02-18, configurable `AGENT_MAX_TOOL_CALLS_PER_STEP` blocks oversized tool-call batches from one model response step)
+
 ## Upcoming: Phase 4
 
 - [ ] Emit trace logs for step count, tools used, and latency.

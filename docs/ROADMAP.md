@@ -105,6 +105,7 @@ Implementation notes:
 - Input/output character limits are implemented with configurable `AGENT_MAX_INPUT_CHARS` and `AGENT_MAX_OUTPUT_CHARS`, enforced in the agent loop for user input and model/tool outputs (`src/agent/mod.rs`, `src/config.rs`) (2026-02-18).
 - `save_note` write safety is implemented with a controlled notes directory (`NOTES_DIR`), safe title-to-filename normalization, and confirmation gating for overwrite-sensitive writes (`SAVE_NOTE_ALLOW_OVERWRITE`) in tool dispatch (`src/tools/mod.rs`), configured via `src/config.rs` (2026-02-18).
 - Additional loop protection is implemented via `AGENT_MAX_CONSECUTIVE_TOOL_STEPS`, blocking repeated tool-call-only iterations after a configurable threshold in `src/agent/mod.rs` with config from `src/config.rs` (2026-02-18).
+- Additional batching protection is implemented via `AGENT_MAX_TOOL_CALLS_PER_STEP`, blocking oversized tool-call batches from a single model response step in `src/agent/mod.rs` with config from `src/config.rs` (2026-02-18).
 
 ## Phase 4: Observability + Evaluations
 

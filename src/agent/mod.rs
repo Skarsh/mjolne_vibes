@@ -25,6 +25,7 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
         model_max_retries = settings.model_max_retries,
         max_steps = settings.max_steps,
         max_tool_calls = settings.max_tool_calls,
+        max_tool_calls_per_step = settings.max_tool_calls_per_step,
         max_consecutive_tool_steps = settings.max_consecutive_tool_steps,
         max_input_chars = settings.max_input_chars,
         max_output_chars = settings.max_output_chars,
@@ -51,6 +52,7 @@ pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
         model_max_retries = settings.model_max_retries,
         max_steps = settings.max_steps,
         max_tool_calls = settings.max_tool_calls,
+        max_tool_calls_per_step = settings.max_tool_calls_per_step,
         max_consecutive_tool_steps = settings.max_consecutive_tool_steps,
         max_input_chars = settings.max_input_chars,
         max_output_chars = settings.max_output_chars,
@@ -186,6 +188,12 @@ impl ChatSession {
                         ));
                     }
 
+                    enforce_tool_calls_per_step_cap(
+                        calls.len(),
+                        self.settings.max_tool_calls_per_step,
+                        step,
+                    )?;
+
                     consecutive_tool_steps = enforce_consecutive_tool_step_cap(
                         consecutive_tool_steps,
                         self.settings.max_consecutive_tool_steps,
@@ -313,6 +321,24 @@ fn enforce_consecutive_tool_step_cap(
     }
 
     Ok(next_total)
+}
+
+fn enforce_tool_calls_per_step_cap(
+    requested_calls: usize,
+    max_tool_calls_per_step: u32,
+    step: u32,
+) -> Result<()> {
+    let requested_calls = u32::try_from(requested_calls).map_err(|_| {
+        anyhow!("model requested too many tool calls to track in one step at step {step}")
+    })?;
+
+    if requested_calls > max_tool_calls_per_step {
+        return Err(anyhow!(
+            "tool-calls-per-step cap exceeded at step {step}: requested {requested_calls}, limit {max_tool_calls_per_step} (AGENT_MAX_TOOL_CALLS_PER_STEP)"
+        ));
+    }
+
+    Ok(())
 }
 
 fn enforce_input_char_limit(input: &str, max_input_chars: u32) -> Result<()> {
@@ -497,7 +523,7 @@ mod tests {
     use super::{
         build_model_tool_definitions, build_repl_tools_lines, enforce_consecutive_tool_step_cap,
         enforce_input_char_limit, enforce_output_char_limit, enforce_tool_call_cap,
-        repl_help_lines, with_timeout,
+        enforce_tool_calls_per_step_cap, repl_help_lines, with_timeout,
     };
     use crate::config::{AgentSettings, ModelProvider};
     use crate::model::client::{MessageRole, ModelMessage};
@@ -537,6 +563,18 @@ mod tests {
     fn enforce_tool_call_cap_rejects_over_limit() {
         let error = enforce_tool_call_cap(6, 3, 8, 2).expect_err("should reject cap overrun");
         assert!(error.to_string().contains("tool-call cap exceeded"));
+    }
+
+    #[test]
+    fn enforce_tool_calls_per_step_cap_accepts_within_limit() {
+        enforce_tool_calls_per_step_cap(2, 3, 1).expect("should stay within cap");
+    }
+
+    #[test]
+    fn enforce_tool_calls_per_step_cap_rejects_over_limit() {
+        let error =
+            enforce_tool_calls_per_step_cap(4, 3, 2).expect_err("should reject cap overrun");
+        assert!(error.to_string().contains("AGENT_MAX_TOOL_CALLS_PER_STEP"));
     }
 
     #[test]
@@ -635,6 +673,7 @@ mod tests {
             openai_api_key: None,
             max_steps: 8,
             max_tool_calls: 8,
+            max_tool_calls_per_step: 4,
             max_consecutive_tool_steps: 4,
             max_input_chars: 4_000,
             max_output_chars: 8_000,
