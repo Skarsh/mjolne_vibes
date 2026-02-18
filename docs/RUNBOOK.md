@@ -6,8 +6,38 @@ Local development runbook for this repository.
 
 - Rust stable
 - `cargo`
-- Ollama (default local provider)
+- Docker
+- Ollama (optional if not using Docker runtime)
 - OpenAI API key (optional, only for OpenAI profile)
+
+## One-command bootstrap
+
+```bash
+./scripts/install.sh
+```
+
+What it does:
+
+- checks required local commands (`cargo`, `docker`, `curl`)
+- creates `.env` from `.env.example` if missing
+- starts Ollama (`docker compose` when available, `docker run` fallback)
+- waits for `OLLAMA_BASE_URL` to be reachable
+- pulls local model (`MODEL` when `MODEL_PROVIDER=ollama`, otherwise `qwen2.5:3b`)
+
+## Cleanup local Ollama data
+
+If you want to wipe local Ollama model data managed by Docker:
+
+```bash
+./scripts/cleanup_ollama_data.sh
+```
+
+The script auto-detects the target Docker volume and host mountpoint, then
+prints them. It only deletes data when re-run with `--yes`.
+
+```bash
+./scripts/cleanup_ollama_data.sh --yes
+```
 
 ## Environment variables
 
@@ -43,15 +73,33 @@ MODEL_MAX_RETRIES=2
 
 ## Local model setup (Ollama)
 
+Native Ollama install:
+
 ```bash
 ollama pull qwen2.5:3b
-```
-
-If Ollama is not already running as a service on your machine:
-
-```bash
 ollama serve
 ```
+
+Docker runtime (no local Ollama install required):
+
+```bash
+docker run -d \
+  --name ollama \
+  --restart unless-stopped \
+  -p 11434:11434 \
+  -e OLLAMA_HOST=0.0.0.0:11434 \
+  -v ollama-data:/root/.ollama \
+  ollama/ollama:latest
+
+docker exec ollama ollama pull qwen2.5:3b
+```
+
+Compose runtime:
+
+- `compose.yaml` is included in repo.
+- Use whichever command exists on your system:
+  - `docker compose up -d ollama`
+  - `docker-compose up -d ollama`
 
 ## Common commands
 

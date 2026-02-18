@@ -29,20 +29,46 @@ Default development flow is local Ollama for cheap/free iteration.
 
 ## Quickstart
 
-1. Install Rust stable (`rustup`, `cargo`).
-2. Install Ollama and pull a model:
+1. Install prerequisites: Rust stable (`rustup`, `cargo`) and Docker.
+
+2. Run the bootstrap script:
 
 ```bash
-ollama pull qwen2.5:3b
+./scripts/install.sh
 ```
 
-3. Copy the env template:
+3. Run:
+
+```bash
+cargo run -- chat "hello"
+```
+
+## Manual setup (optional)
+
+1. Start Ollama and pull a model:
+
+```bash
+# Native install path:
+ollama pull qwen2.5:3b
+
+# Docker path (no local ollama binary required):
+docker run -d \
+  --name ollama \
+  --restart unless-stopped \
+  -p 11434:11434 \
+  -e OLLAMA_HOST=0.0.0.0:11434 \
+  -v ollama-data:/root/.ollama \
+  ollama/ollama:latest
+docker exec ollama ollama pull qwen2.5:3b
+```
+
+2. Copy the env template:
 
 ```bash
 cp .env.example .env
 ```
 
-4. Configure environment (local-first profile):
+3. Configure environment (local-first profile):
 
 ```env
 MODEL_PROVIDER=ollama
@@ -64,7 +90,7 @@ MODEL_TIMEOUT_MS=20000
 MODEL_MAX_RETRIES=2
 ```
 
-5. Run:
+4. Run:
 
 ```bash
 cargo run -- chat "hello"

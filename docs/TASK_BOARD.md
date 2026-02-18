@@ -14,7 +14,7 @@ Completed in Phase 0 (2026-02-18):
 
 ## Current tasks: Phase 1
 
-- [ ] Set up local Ollama for validation (install/start service, run `ollama pull qwen2.5:3b`, verify `OLLAMA_BASE_URL` is reachable).
+- [x] Set up local Ollama for validation (install/start service, run `ollama pull qwen2.5:3b`, verify `OLLAMA_BASE_URL` is reachable). (2026-02-18, Docker container + model pull + reachable API)
 - [x] Add model client wrapper module. (2026-02-18)
 - [x] Implement Ollama request path (`MODEL_PROVIDER=ollama`). (2026-02-18)
 - [x] Implement OpenAI request path (`MODEL_PROVIDER=openai`). (2026-02-18)
@@ -22,6 +22,14 @@ Completed in Phase 0 (2026-02-18):
 - [x] Add retry/backoff for transient failures. (2026-02-18)
 - [x] Add request timeout handling. (2026-02-18)
 - [ ] Run manual stability validation across 10 prompts with local Ollama reachable.
+
+Progress notes (2026-02-18):
+
+- Confirmed phase-1 code path and retries/logging are working; all quality gates passed (`fmt`, `clippy -D warnings`, `test`).
+- Ollama is running in Docker on `http://localhost:11434` (`ollama/ollama:latest`).
+- Pulled model `qwen2.5:3b` in container and verified with `/api/tags` and `ollama list`.
+- Verified end-to-end CLI call: `cargo run -- chat "hello"` returns model output.
+- Remaining Phase 1 task: complete manual stability validation across 10 prompts and record results.
 
 ## Upcoming: Phase 2
 
