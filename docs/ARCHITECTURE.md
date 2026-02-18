@@ -81,6 +81,7 @@ Current Phase 3 safety implementation status:
 Current Phase 4 observability implementation status:
 
 - Turn-level trace summary logs are emitted from `src/agent/mod.rs`, including step count, tool usage, and model/tool/turn latency metrics.
+- `fetch_url` now executes live HTTP retrieval in `src/tools/mod.rs` with allowlist checks, timeout-aware client behavior, content-type validation, and response byte-size limits.
 
 ## Boundary rules
 

@@ -27,7 +27,7 @@ Current implementation includes:
 - turn trace logging for step count, tool usage, and model/tool/turn latency,
 - configurable input/output character limits (`AGENT_MAX_INPUT_CHARS`, `AGENT_MAX_OUTPUT_CHARS`),
 - `save_note` writes markdown into a controlled directory (`NOTES_DIR`) with overwrite confirmation gating (`SAVE_NOTE_ALLOW_OVERWRITE`),
-- `fetch_url` domain allowlist guardrail (`FETCH_URL_ALLOWED_DOMAINS`).
+- live `fetch_url` retrieval with domain allowlist guardrail (`FETCH_URL_ALLOWED_DOMAINS`), response size cap (`FETCH_URL_MAX_BYTES`), and content-type checks.
 
 ## Provider strategy
 
@@ -98,6 +98,7 @@ AGENT_MAX_CONSECUTIVE_TOOL_STEPS=4
 AGENT_MAX_INPUT_CHARS=4000
 AGENT_MAX_OUTPUT_CHARS=8000
 TOOL_TIMEOUT_MS=5000
+FETCH_URL_MAX_BYTES=100000
 FETCH_URL_ALLOWED_DOMAINS=example.com
 NOTES_DIR=notes
 SAVE_NOTE_ALLOW_OVERWRITE=false
@@ -118,6 +119,7 @@ AGENT_MAX_CONSECUTIVE_TOOL_STEPS=4
 AGENT_MAX_INPUT_CHARS=4000
 AGENT_MAX_OUTPUT_CHARS=8000
 TOOL_TIMEOUT_MS=5000
+FETCH_URL_MAX_BYTES=100000
 FETCH_URL_ALLOWED_DOMAINS=example.com
 NOTES_DIR=notes
 SAVE_NOTE_ALLOW_OVERWRITE=false

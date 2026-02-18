@@ -17,6 +17,7 @@ Safety and guardrail policy for v1.
 - Input character limit (`AGENT_MAX_INPUT_CHARS`).
 - Output character limit (`AGENT_MAX_OUTPUT_CHARS`).
 - Per-tool timeout (`TOOL_TIMEOUT_MS`).
+- Fetch response byte limit (`FETCH_URL_MAX_BYTES`).
 - Overall turn timeout.
 
 ## Tool safety policy
@@ -24,7 +25,7 @@ Safety and guardrail policy for v1.
 ## `fetch_url(url: string)`
 
 - Enforce strict domain allowlist (`FETCH_URL_ALLOWED_DOMAINS`).
-- Enforce byte-size cap.
+- Enforce byte-size cap (`FETCH_URL_MAX_BYTES`).
 - Enforce timeout.
 - Validate content type where applicable.
 

@@ -148,6 +148,8 @@ impl ChatSession {
             settings.fetch_url_allowed_domains.clone(),
             PathBuf::from(settings.notes_dir.clone()),
             settings.save_note_allow_overwrite,
+            settings.tool_timeout_ms,
+            settings.fetch_url_max_bytes as usize,
         );
         let conversation = vec![ModelMessage::system(SYSTEM_PROMPT)];
 
@@ -521,16 +523,14 @@ async fn dispatch_tool_call_with_timeout(
     tool_timeout_ms: u64,
     tool_runtime: &ToolRuntimeConfig,
 ) -> String {
-    let tool_name_for_task = tool_name.to_owned();
-    let runtime = tool_runtime.clone();
-    let dispatch_future = tokio::task::spawn_blocking(move || {
-        dispatch_tool_call(&tool_name_for_task, raw_args, &runtime)
-    });
-
-    let timeout_result = with_timeout(dispatch_future, tool_timeout_ms).await;
+    let timeout_result = with_timeout(
+        dispatch_tool_call(tool_name, raw_args, tool_runtime),
+        tool_timeout_ms,
+    )
+    .await;
     match timeout_result {
-        Ok(Ok(Ok(output))) => output.payload.to_string(),
-        Ok(Ok(Err(error))) => {
+        Ok(Ok(output)) => output.payload.to_string(),
+        Ok(Err(error)) => {
             warn!(
                 tool_name = %tool_name,
                 tool_call_id = %tool_call_id,
@@ -540,19 +540,6 @@ async fn dispatch_tool_call_with_timeout(
 
             json!({
                 "error": error.to_string()
-            })
-            .to_string()
-        }
-        Ok(Err(join_error)) => {
-            warn!(
-                tool_name = %tool_name,
-                tool_call_id = %tool_call_id,
-                error = %join_error,
-                "tool execution task failed"
-            );
-
-            json!({
-                "error": format!("tool `{tool_name}` execution failed: {join_error}")
             })
             .to_string()
         }
@@ -788,6 +775,7 @@ mod tests {
             max_input_chars: 4_000,
             max_output_chars: 8_000,
             tool_timeout_ms: 5_000,
+            fetch_url_max_bytes: 100_000,
             fetch_url_allowed_domains: vec!["example.com".to_owned()],
             notes_dir: "notes".to_owned(),
             save_note_allow_overwrite: false,

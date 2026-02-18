@@ -1,7 +1,11 @@
+use std::error::Error as StdError;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use reqwest::Url;
+use reqwest::header::{CONTENT_TYPE, HeaderMap};
+use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -61,6 +65,8 @@ pub struct ToolRuntimeConfig {
     pub fetch_url_allowed_domains: Vec<String>,
     pub notes_dir: PathBuf,
     pub save_note_allow_overwrite: bool,
+    pub tool_timeout_ms: u64,
+    pub fetch_url_max_bytes: usize,
 }
 
 impl ToolRuntimeConfig {
@@ -68,11 +74,15 @@ impl ToolRuntimeConfig {
         fetch_url_allowed_domains: Vec<String>,
         notes_dir: PathBuf,
         save_note_allow_overwrite: bool,
+        tool_timeout_ms: u64,
+        fetch_url_max_bytes: usize,
     ) -> Self {
         Self {
             fetch_url_allowed_domains,
             notes_dir,
             save_note_allow_overwrite,
+            tool_timeout_ms,
+            fetch_url_max_bytes,
         }
     }
 }
@@ -92,17 +102,22 @@ pub enum ToolDispatchError {
     ExecutionFailed { tool_name: String, reason: String },
 }
 
-pub fn dispatch_tool_call(
+pub async fn dispatch_tool_call(
     tool_name: &str,
     raw_args: Value,
     runtime: &ToolRuntimeConfig,
 ) -> Result<ToolDispatchOutput, ToolDispatchError> {
     let payload = match tool_name {
         SEARCH_NOTES_TOOL_NAME => Ok(run_search_notes(parse_args(tool_name, raw_args)?)),
-        FETCH_URL_TOOL_NAME => run_fetch_url(
-            parse_args(tool_name, raw_args)?,
-            &runtime.fetch_url_allowed_domains,
-        ),
+        FETCH_URL_TOOL_NAME => {
+            run_fetch_url(
+                parse_args(tool_name, raw_args)?,
+                &runtime.fetch_url_allowed_domains,
+                runtime.tool_timeout_ms,
+                runtime.fetch_url_max_bytes,
+            )
+            .await
+        }
         SAVE_NOTE_TOOL_NAME => run_save_note(
             parse_args(tool_name, raw_args)?,
             &runtime.notes_dir,
@@ -139,20 +154,222 @@ fn run_search_notes(args: SearchNotesArgs) -> Value {
     })
 }
 
-fn run_fetch_url(
+async fn run_fetch_url(
     args: FetchUrlArgs,
     fetch_url_allowed_domains: &[String],
+    tool_timeout_ms: u64,
+    fetch_url_max_bytes: usize,
 ) -> Result<Value, ToolDispatchError> {
-    let parsed = Url::parse(&args.url).map_err(|error| ToolDispatchError::InvalidArgs {
+    run_fetch_url_with_fetcher(
+        args,
+        fetch_url_allowed_domains,
+        tool_timeout_ms,
+        fetch_url_max_bytes,
+        fetch_url_over_http,
+    )
+    .await
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FetchResponse {
+    final_url: String,
+    status_code: u16,
+    content_type: Option<String>,
+    body: Vec<u8>,
+}
+
+async fn run_fetch_url_with_fetcher<F, Fut>(
+    args: FetchUrlArgs,
+    fetch_url_allowed_domains: &[String],
+    tool_timeout_ms: u64,
+    fetch_url_max_bytes: usize,
+    fetcher: F,
+) -> Result<Value, ToolDispatchError>
+where
+    F: Fn(Url, u64, usize) -> Fut,
+    Fut: std::future::Future<Output = Result<FetchResponse, ToolDispatchError>>,
+{
+    let parsed = parse_fetch_url(&args.url, fetch_url_allowed_domains)?;
+    let fetched = fetcher(parsed, tool_timeout_ms, fetch_url_max_bytes).await?;
+
+    if !status_is_success(fetched.status_code) {
+        return Err(ToolDispatchError::ExecutionFailed {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!(
+                "received non-success HTTP status {} for `{}`",
+                fetched.status_code, args.url
+            ),
+        });
+    }
+
+    if let Some(value) = fetched.content_type.as_deref()
+        && !content_type_allowed(value)
+    {
+        return Err(ToolDispatchError::PolicyViolation {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!("content type `{value}` is not allowed"),
+        });
+    }
+
+    if fetched.body.len() > fetch_url_max_bytes {
+        return Err(ToolDispatchError::PolicyViolation {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!(
+                "response body exceeded FETCH_URL_MAX_BYTES limit: {} bytes (max {fetch_url_max_bytes})",
+                fetched.body.len()
+            ),
+        });
+    }
+
+    let content = String::from_utf8_lossy(&fetched.body).to_string();
+    Ok(json!({
+        "url": args.url,
+        "final_url": fetched.final_url,
+        "status_code": fetched.status_code,
+        "content_type": fetched.content_type,
+        "bytes": fetched.body.len(),
+        "content": content,
+    }))
+}
+
+async fn fetch_url_over_http(
+    parsed_url: Url,
+    tool_timeout_ms: u64,
+    fetch_url_max_bytes: usize,
+) -> Result<FetchResponse, ToolDispatchError> {
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(tool_timeout_ms))
+        // Keep redirects disabled to prevent cross-domain hops outside allowlist intent.
+        .redirect(Policy::none())
+        .build()
+        .map_err(|error| ToolDispatchError::ExecutionFailed {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!(
+                "failed to build HTTP client: {}",
+                describe_reqwest_error(&error)
+            ),
+        })?;
+
+    let mut response = client
+        .get(parsed_url.clone())
+        .send()
+        .await
+        .map_err(|error| ToolDispatchError::ExecutionFailed {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!(
+                "failed to fetch `{parsed_url}`: {}",
+                describe_reqwest_error(&error)
+            ),
+        })?;
+
+    let status_code = response.status().as_u16();
+    let content_type = extract_content_type(response.headers())?;
+    let mut body = Vec::new();
+    while let Some(chunk) =
+        response
+            .chunk()
+            .await
+            .map_err(|error| ToolDispatchError::ExecutionFailed {
+                tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+                reason: format!(
+                    "failed to read response body from `{parsed_url}`: {}",
+                    describe_reqwest_error(&error)
+                ),
+            })?
+    {
+        let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+            ToolDispatchError::ExecutionFailed {
+                tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+                reason: "response body length overflowed while reading".to_owned(),
+            }
+        })?;
+        if next_len > fetch_url_max_bytes {
+            return Err(ToolDispatchError::PolicyViolation {
+                tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+                reason: format!(
+                    "response body exceeded FETCH_URL_MAX_BYTES limit: {next_len} bytes (max {fetch_url_max_bytes})"
+                ),
+            });
+        }
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok(FetchResponse {
+        final_url: response.url().as_str().to_owned(),
+        status_code,
+        content_type,
+        body,
+    })
+}
+
+fn status_is_success(status_code: u16) -> bool {
+    (200..300).contains(&status_code)
+}
+
+fn describe_reqwest_error(error: &reqwest::Error) -> String {
+    let mut details = vec![format_error_chain(error)];
+    let mut classes = Vec::new();
+
+    if error.is_builder() {
+        classes.push("builder");
+    }
+    if error.is_connect() {
+        classes.push("connect");
+    }
+    if error.is_timeout() {
+        classes.push("timeout");
+    }
+    if error.is_request() {
+        classes.push("request");
+    }
+    if error.is_body() {
+        classes.push("body");
+    }
+    if error.is_decode() {
+        classes.push("decode");
+    }
+    if error.is_redirect() {
+        classes.push("redirect");
+    }
+    if error.is_status() {
+        classes.push("status");
+    }
+
+    if !classes.is_empty() {
+        details.push(format!("class={}", classes.join(",")));
+    }
+    if let Some(url) = error.url() {
+        details.push(format!("url={url}"));
+    }
+
+    details.join(" | ")
+}
+
+fn format_error_chain(error: &(dyn StdError + 'static)) -> String {
+    let mut chain = error.to_string();
+    let mut source = error.source();
+    while let Some(next) = source {
+        chain.push_str(": ");
+        chain.push_str(&next.to_string());
+        source = next.source();
+    }
+    chain
+}
+
+fn parse_fetch_url(
+    url: &str,
+    fetch_url_allowed_domains: &[String],
+) -> Result<Url, ToolDispatchError> {
+    let parsed = Url::parse(url).map_err(|error| ToolDispatchError::InvalidArgs {
         tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-        reason: format!("invalid url `{}`: {error}", args.url),
+        reason: format!("invalid url `{url}`: {error}"),
     })?;
 
     let host = parsed
         .host_str()
         .ok_or_else(|| ToolDispatchError::InvalidArgs {
             tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("url `{}` must include a host", args.url),
+            reason: format!("url `{url}` must include a host"),
         })?;
 
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
@@ -170,11 +387,41 @@ fn run_fetch_url(
         });
     }
 
-    Ok(json!({
-        "url": args.url,
-        "content": null,
-        "status": "stubbed_in_phase_2"
-    }))
+    Ok(parsed)
+}
+
+fn extract_content_type(headers: &HeaderMap) -> Result<Option<String>, ToolDispatchError> {
+    let Some(value) = headers.get(CONTENT_TYPE) else {
+        return Ok(None);
+    };
+
+    let raw = value
+        .to_str()
+        .map_err(|error| ToolDispatchError::PolicyViolation {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!("invalid response content type header: {error}"),
+        })?;
+
+    let normalized = raw
+        .split(';')
+        .next()
+        .map(str::trim)
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if normalized.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(normalized))
+    }
+}
+
+fn content_type_allowed(content_type: &str) -> bool {
+    content_type.starts_with("text/")
+        || content_type == "application/json"
+        || content_type.ends_with("+json")
+        || content_type == "application/xml"
+        || content_type == "text/xml"
+        || content_type.ends_with("+xml")
 }
 
 fn host_allowed(host: &str, allowlist: &[String]) -> bool {
@@ -270,15 +517,34 @@ fn normalize_note_title(title: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::future::Future;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use super::{
-        FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME, ToolDispatchError,
-        ToolRuntimeConfig, dispatch_tool_call, normalize_note_title, tool_definitions,
+        FETCH_URL_TOOL_NAME, FetchResponse, FetchUrlArgs, SAVE_NOTE_TOOL_NAME,
+        SEARCH_NOTES_TOOL_NAME, ToolDispatchError, ToolDispatchOutput, ToolRuntimeConfig,
+        dispatch_tool_call as dispatch_tool_call_async, host_allowed, normalize_note_title,
+        run_fetch_url_with_fetcher, tool_definitions,
     };
+
+    fn dispatch_tool_call(
+        tool_name: &str,
+        raw_args: Value,
+        tool_runtime: &ToolRuntimeConfig,
+    ) -> Result<ToolDispatchOutput, ToolDispatchError> {
+        block_on(dispatch_tool_call_async(tool_name, raw_args, tool_runtime))
+    }
+
+    fn block_on<T>(future: impl Future<Output = T>) -> T {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime should initialize");
+        runtime.block_on(future)
+    }
 
     #[test]
     fn registry_contains_three_v1_tools() {
@@ -332,25 +598,28 @@ mod tests {
 
     #[test]
     fn dispatch_fetch_url_returns_structured_payload() {
-        let runtime = test_runtime_config("fetch_url_allowed", false);
-        let output = dispatch_tool_call(
-            FETCH_URL_TOOL_NAME,
-            json!({
-                "url": "https://example.com"
-            }),
-            &runtime,
-        )
-        .expect("should dispatch");
+        let output = block_on(run_fetch_url_with_fetcher(
+            FetchUrlArgs {
+                url: "https://example.com".to_owned(),
+            },
+            &test_allowlist(),
+            5_000,
+            100_000,
+            |_url, _timeout_ms, _max_bytes| async {
+                Ok(FetchResponse {
+                    final_url: "https://example.com/".to_owned(),
+                    status_code: 200,
+                    content_type: Some("text/plain".to_owned()),
+                    body: b"hello".to_vec(),
+                })
+            },
+        ))
+        .expect("fetch should succeed");
 
-        assert_eq!(output.tool_name, FETCH_URL_TOOL_NAME);
-        assert_eq!(
-            output.payload,
-            json!({
-                "url": "https://example.com",
-                "content": null,
-                "status": "stubbed_in_phase_2"
-            })
-        );
+        assert_eq!(output.get("status_code"), Some(&json!(200)));
+        assert_eq!(output.get("content_type"), Some(&json!("text/plain")));
+        assert_eq!(output.get("bytes"), Some(&json!(5)));
+        assert_eq!(output.get("content"), Some(&json!("hello")));
     }
 
     #[test]
@@ -522,18 +791,8 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_fetch_url_allows_subdomains_in_allowlist() {
-        let runtime = test_runtime_config("fetch_url_subdomain", false);
-        let output = dispatch_tool_call(
-            FETCH_URL_TOOL_NAME,
-            json!({
-                "url": "https://docs.example.com/page"
-            }),
-            &runtime,
-        )
-        .expect("allowed subdomain should dispatch");
-
-        assert_eq!(output.tool_name, FETCH_URL_TOOL_NAME);
+    fn host_allowed_allows_subdomains_in_allowlist() {
+        assert!(host_allowed("docs.example.com", &test_allowlist()));
     }
 
     #[test]
@@ -572,6 +831,58 @@ mod tests {
         assert!(reason.contains("scheme"));
     }
 
+    #[test]
+    fn dispatch_fetch_url_rejects_unsupported_content_type() {
+        let error = block_on(run_fetch_url_with_fetcher(
+            FetchUrlArgs {
+                url: "https://example.com".to_owned(),
+            },
+            &test_allowlist(),
+            5_000,
+            100_000,
+            |_url, _timeout_ms, _max_bytes| async {
+                Ok(FetchResponse {
+                    final_url: "https://example.com/".to_owned(),
+                    status_code: 200,
+                    content_type: Some("application/octet-stream".to_owned()),
+                    body: b"hello".to_vec(),
+                })
+            },
+        ))
+        .expect_err("unsupported content type should fail");
+
+        let ToolDispatchError::PolicyViolation { reason, .. } = error else {
+            panic!("expected policy violation");
+        };
+        assert!(reason.contains("content type"));
+    }
+
+    #[test]
+    fn dispatch_fetch_url_rejects_oversized_response_body() {
+        let error = block_on(run_fetch_url_with_fetcher(
+            FetchUrlArgs {
+                url: "https://example.com".to_owned(),
+            },
+            &test_allowlist(),
+            5_000,
+            4,
+            |_url, _timeout_ms, _max_bytes| async {
+                Ok(FetchResponse {
+                    final_url: "https://example.com/".to_owned(),
+                    status_code: 200,
+                    content_type: Some("text/plain".to_owned()),
+                    body: b"hello".to_vec(),
+                })
+            },
+        ))
+        .expect_err("oversized body should fail");
+
+        let ToolDispatchError::PolicyViolation { reason, .. } = error else {
+            panic!("expected policy violation");
+        };
+        assert!(reason.contains("FETCH_URL_MAX_BYTES"));
+    }
+
     fn test_allowlist() -> Vec<String> {
         vec!["example.com".to_owned(), "docs.rs".to_owned()]
     }
@@ -581,6 +892,8 @@ mod tests {
             test_allowlist(),
             temp_notes_dir(test_name),
             save_note_allow_overwrite,
+            5_000,
+            100_000,
         )
     }
 

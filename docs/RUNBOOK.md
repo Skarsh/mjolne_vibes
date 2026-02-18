@@ -61,6 +61,7 @@ AGENT_MAX_CONSECUTIVE_TOOL_STEPS=4
 AGENT_MAX_INPUT_CHARS=4000
 AGENT_MAX_OUTPUT_CHARS=8000
 TOOL_TIMEOUT_MS=5000
+FETCH_URL_MAX_BYTES=100000
 FETCH_URL_ALLOWED_DOMAINS=example.com
 NOTES_DIR=notes
 SAVE_NOTE_ALLOW_OVERWRITE=false
@@ -81,6 +82,7 @@ AGENT_MAX_CONSECUTIVE_TOOL_STEPS=4
 AGENT_MAX_INPUT_CHARS=4000
 AGENT_MAX_OUTPUT_CHARS=8000
 TOOL_TIMEOUT_MS=5000
+FETCH_URL_MAX_BYTES=100000
 FETCH_URL_ALLOWED_DOMAINS=example.com
 NOTES_DIR=notes
 SAVE_NOTE_ALLOW_OVERWRITE=false
@@ -202,6 +204,7 @@ Log files:
 - If using Ollama, ensure service is reachable at `OLLAMA_BASE_URL` and model is pulled.
 - If using OpenAI, verify API key and model string.
 - If loops/timeouts occur, inspect configured limits and trace logs.
+- `fetch_url` uses native system certificate roots via reqwest/rustls; if `curl` works but tool fetch fails, check `tool dispatch failed` logs for the full reqwest error-chain/class details.
 
 ## Observability notes
 

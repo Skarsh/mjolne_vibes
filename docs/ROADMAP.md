@@ -131,7 +131,8 @@ Status:
 Implementation notes:
 
 - Turn trace summary logging is implemented in `src/agent/mod.rs`, emitting step count, tool usage, and model/tool/turn latency metrics per turn (2026-02-18).
-- Next task: implement live `fetch_url` retrieval in `src/tools/mod.rs` (currently returns `status: "stubbed_in_phase_2"`).
+- Live `fetch_url` retrieval is implemented in `src/tools/mod.rs` with domain allowlist checks, timeout-aware HTTP fetching, content-type validation, and response byte-size enforcement (`FETCH_URL_MAX_BYTES`) (2026-02-18).
+- Next task: add evaluation harness driven by `eval/cases.yaml`.
 
 ## Phase 5: Packaging + Next Step
 

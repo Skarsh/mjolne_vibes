@@ -50,10 +50,10 @@ Progress notes (2026-02-18):
 
 - [x] Add per-step tool-call batching cap for safety hardening. (2026-02-18, configurable `AGENT_MAX_TOOL_CALLS_PER_STEP` blocks oversized tool-call batches from one model response step)
 - [x] Emit trace logs for step count, tools used, and latency. (2026-02-18, turn trace summary emits step/tool counts, tool names, and model/tool/turn latency metrics in `src/agent/mod.rs`)
+- [x] Implement live `fetch_url` content retrieval (replace phase-2 stub payload, keep allowlist/safety checks). (2026-02-18, `src/tools/mod.rs` now performs HTTP retrieval with allowlist checks, timeout-aware fetch, content-type validation, and `FETCH_URL_MAX_BYTES` enforcement)
 
 ## Upcoming: Phase 4
 
-- [ ] Implement live `fetch_url` content retrieval (replace phase-2 stub payload, keep allowlist/safety checks).
 - [ ] Add evaluation harness driven by `eval/cases.yaml`.
 - [ ] Add initial evaluation cases and pass/fail checks.
 
