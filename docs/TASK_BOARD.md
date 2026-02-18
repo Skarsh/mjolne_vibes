@@ -2,15 +2,17 @@
 
 Execution task board for v1.
 
-## Current focus: Phase 0
+## Current focus: Phase 1
 
-- [ ] Add `config.rs` with env defaults and typed settings.
-- [ ] Add model provider setting with `ollama` default and `openai` fallback.
-- [ ] Add CLI parsing with `chat "<message>"` command.
-- [ ] Add structured logging initialization.
-- [ ] Add placeholder `agent` module and return path for chat command.
+Completed in Phase 0 (2026-02-18):
 
-## Next: Phase 1
+- [x] Add `config.rs` with env defaults and typed settings.
+- [x] Add model provider setting with `ollama` default and `openai` fallback.
+- [x] Add CLI parsing with `chat "<message>"` command.
+- [x] Add structured logging initialization.
+- [x] Add placeholder `agent` module and return path for chat command.
+
+## Current tasks: Phase 1
 
 - [ ] Add model client wrapper module.
 - [ ] Implement Ollama request path (`MODEL_PROVIDER=ollama`).

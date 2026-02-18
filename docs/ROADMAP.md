@@ -4,7 +4,7 @@ Execution roadmap for v1. This is the working implementation sequence.
 
 ## Current phase
 
-- Active phase: `Phase 0 - Skeleton + Config`
+- Active phase: `Phase 1 - Basic Model Chat (No tools)`
 
 ## Phase 0: Skeleton + Config
 
@@ -22,7 +22,7 @@ Acceptance criteria:
 
 Status:
 
-- [ ] Not started
+- [x] Completed (2026-02-18)
 
 ## Phase 1: Basic Model Chat (No tools)
 
@@ -43,7 +43,7 @@ Acceptance criteria:
 
 Status:
 
-- [ ] Not started
+- [ ] In progress
 
 ## Phase 2: Tool Calling Loop
 
