@@ -18,6 +18,9 @@ Current execution board for maintenance work.
 
 ## Recently completed
 
+- [x] Advanced `studio` into an interaction-first canvas shell with collapsible chat rail, pan/zoom/fit controls, and tool-call cards rendered directly on canvas for agent-driven workflows (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-19).
+- [x] Reworked `studio` into a cleaner canvas-first layout with a simplified chat sidebar, dynamic full-height canvas surface rendering, and extensible canvas-surface dispatch for future non-graph views (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-19).
+- [x] Refreshed native `studio` visual design with a lighter branded theme, stronger status/metadata chips, updated chat/canvas card hierarchy, and harmonized graph palette styling (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-19).
 - [x] Polished native `studio` UI with themed card layout, improved chat/canvas readability, and cleaner graph legend/hover presentation (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-19).
 - [x] Added read-only canvas graph rendering (node/edge visuals) with changed/impact styling in `src/studio/canvas.rs` and wired it into the studio canvas pane (2026-02-19).
 - [x] Added changed-node highlight with optional 1-hop impact overlay toggle and annotations in `studio` graph refresh flow (`src/studio/mod.rs`) with diff/overlay tests (2026-02-19).

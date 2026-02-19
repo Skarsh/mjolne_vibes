@@ -9,7 +9,7 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tracing::{info, warn};
 
-use crate::agent::run_chat_turn;
+use crate::agent::{ExecutedToolCall, run_chat_turn};
 use crate::config::AgentSettings;
 use crate::graph::ArchitectureGraph;
 use crate::graph::watch::{GraphRefreshUpdate, GraphWatchHandle, spawn_graph_watch_worker};
@@ -17,13 +17,40 @@ use crate::graph::watch::{GraphRefreshUpdate, GraphWatchHandle, spawn_graph_watc
 pub mod canvas;
 pub mod events;
 
-use self::canvas::{CanvasState, render_graph_snapshot};
+use self::canvas::{
+    CanvasState, CanvasToolCard, CanvasViewport, GraphRenderOptions, render_graph_snapshot,
+};
 use self::events::{CanvasOp, StudioCommand, StudioEvent, StudioTurnResult};
 
 const APP_TITLE: &str = "mjolne_vibes studio";
 const MAX_CANVAS_SUMMARIES: usize = 24;
+const MAX_CANVAS_TOOL_CARDS: usize = 16;
 const CANVAS_PREVIEW_CHAR_LIMIT: usize = 180;
 const MAX_IMPACT_NODE_ANNOTATIONS: usize = 12;
+
+fn studio_text() -> egui::Color32 {
+    egui::Color32::from_rgb(27, 35, 47)
+}
+
+fn studio_muted_text() -> egui::Color32 {
+    egui::Color32::from_rgb(101, 114, 132)
+}
+
+fn studio_surface() -> egui::Color32 {
+    egui::Color32::from_rgb(248, 250, 253)
+}
+
+fn studio_surface_alt() -> egui::Color32 {
+    egui::Color32::from_rgb(239, 244, 250)
+}
+
+fn studio_border() -> egui::Color32 {
+    egui::Color32::from_rgb(206, 216, 228)
+}
+
+fn studio_accent() -> egui::Color32 {
+    egui::Color32::from_rgb(44, 109, 210)
+}
 
 pub fn run_studio(settings: &AgentSettings) -> Result<()> {
     let runtime_handle = Handle::try_current().context("studio requires a tokio runtime")?;
@@ -178,6 +205,19 @@ struct CanvasTurnSummary {
     tool_call_count: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanvasSurfaceKind {
+    ArchitectureGraph,
+}
+
+impl CanvasSurfaceKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ArchitectureGraph => "Architecture graph",
+        }
+    }
+}
+
 struct StudioApp {
     settings: AgentSettings,
     workspace_root: PathBuf,
@@ -193,6 +233,11 @@ struct StudioApp {
     changed_node_ids: Vec<String>,
     impact_node_ids: Vec<String>,
     impact_overlay_enabled: bool,
+    active_canvas_surface: CanvasSurfaceKind,
+    chat_panel_expanded: bool,
+    canvas_viewport: CanvasViewport,
+    canvas_tool_cards: Vec<CanvasToolCard>,
+    next_tool_card_id: u64,
     turn_summaries: Vec<CanvasTurnSummary>,
     theme_applied: bool,
     turn_in_flight: bool,
@@ -226,6 +271,11 @@ impl StudioApp {
             changed_node_ids: Vec::new(),
             impact_node_ids: Vec::new(),
             impact_overlay_enabled: false,
+            active_canvas_surface: CanvasSurfaceKind::ArchitectureGraph,
+            chat_panel_expanded: true,
+            canvas_viewport: CanvasViewport::default(),
+            canvas_tool_cards: Vec::new(),
+            next_tool_card_id: 0,
             turn_summaries: Vec::new(),
             theme_applied: false,
             turn_in_flight: false,
@@ -240,63 +290,69 @@ impl StudioApp {
         }
 
         let mut style = (*ctx.style()).clone();
-        style.spacing.item_spacing = egui::vec2(10.0, 10.0);
-        style.spacing.button_padding = egui::vec2(12.0, 8.0);
+        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        style.spacing.button_padding = egui::vec2(12.0, 6.0);
         style.spacing.interact_size = egui::vec2(44.0, 30.0);
-        style.spacing.indent = 16.0;
-        style.spacing.window_margin = egui::Margin::symmetric(14, 12);
-        style.spacing.menu_margin = egui::Margin::symmetric(10, 8);
+        style.spacing.indent = 12.0;
+        style.spacing.window_margin = egui::Margin::symmetric(12, 10);
+        style.spacing.menu_margin = egui::Margin::symmetric(8, 6);
         style.spacing.scroll = egui::style::ScrollStyle::floating();
 
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(24.0, egui::FontFamily::Proportional),
+            egui::FontId::new(21.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Button,
-            egui::FontId::new(15.0, egui::FontFamily::Proportional),
-        );
-        style.text_styles.insert(
-            egui::TextStyle::Body,
             egui::FontId::new(14.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
+            egui::TextStyle::Body,
+            egui::FontId::new(13.5, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
             egui::TextStyle::Small,
-            egui::FontId::new(12.0, egui::FontFamily::Proportional),
+            egui::FontId::new(11.5, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Monospace,
-            egui::FontId::new(12.0, egui::FontFamily::Monospace),
+            egui::FontId::new(11.5, egui::FontFamily::Monospace),
         );
 
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = egui::Color32::from_rgb(20, 23, 29);
-        visuals.extreme_bg_color = egui::Color32::from_rgb(13, 16, 20);
-        visuals.faint_bg_color = egui::Color32::from_rgb(33, 39, 48);
-        visuals.code_bg_color = egui::Color32::from_rgb(16, 20, 26);
-        visuals.window_fill = egui::Color32::from_rgb(18, 22, 28);
-        visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(54, 65, 80));
-        visuals.menu_corner_radius = 12.into();
-        visuals.window_corner_radius = 12.into();
-        visuals.selection.bg_fill = egui::Color32::from_rgb(60, 103, 167);
-        visuals.widgets.noninteractive.corner_radius = 10.into();
-        visuals.widgets.inactive.corner_radius = 10.into();
-        visuals.widgets.hovered.corner_radius = 10.into();
-        visuals.widgets.active.corner_radius = 10.into();
-        visuals.widgets.open.corner_radius = 10.into();
-        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(29, 36, 45);
-        visuals.widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(24, 30, 39);
-        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(45, 57, 73);
-        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(54, 78, 111);
-        visuals.widgets.inactive.bg_stroke =
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(57, 68, 86));
+        let mut visuals = egui::Visuals::light();
+        visuals.override_text_color = Some(studio_text());
+        visuals.panel_fill = studio_surface();
+        visuals.extreme_bg_color = egui::Color32::from_rgb(255, 255, 255);
+        visuals.faint_bg_color = studio_surface_alt();
+        visuals.code_bg_color = egui::Color32::from_rgb(241, 246, 252);
+        visuals.window_fill = egui::Color32::from_rgb(255, 255, 255);
+        visuals.window_stroke = egui::Stroke::new(1.0, studio_border());
+        visuals.menu_corner_radius = 10.into();
+        visuals.window_corner_radius = 10.into();
+        visuals.selection.bg_fill = studio_accent().gamma_multiply(0.85);
+        visuals.selection.stroke = egui::Stroke::new(1.0, studio_accent());
+        visuals.widgets.noninteractive.corner_radius = 8.into();
+        visuals.widgets.inactive.corner_radius = 8.into();
+        visuals.widgets.hovered.corner_radius = 8.into();
+        visuals.widgets.active.corner_radius = 8.into();
+        visuals.widgets.open.corner_radius = 8.into();
+        visuals.widgets.noninteractive.bg_fill = egui::Color32::from_rgb(252, 253, 255);
+        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, studio_text());
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(243, 247, 252);
+        visuals.widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(237, 243, 249);
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(232, 240, 250);
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(220, 233, 247);
+        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, studio_border());
         visuals.widgets.hovered.bg_stroke =
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(84, 104, 131));
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(174, 194, 219));
         visuals.widgets.active.bg_stroke =
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(101, 131, 174));
-        visuals.hyperlink_color = egui::Color32::from_rgb(118, 183, 255);
-        visuals.warn_fg_color = egui::Color32::from_rgb(241, 179, 61);
-        visuals.error_fg_color = egui::Color32::from_rgb(231, 92, 92);
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(133, 168, 211));
+        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, studio_text());
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.2, studio_text());
+        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.2, studio_text());
+        visuals.hyperlink_color = egui::Color32::from_rgb(39, 110, 214);
+        visuals.warn_fg_color = egui::Color32::from_rgb(184, 121, 34);
+        visuals.error_fg_color = egui::Color32::from_rgb(193, 67, 67);
         style.visuals = visuals;
 
         ctx.set_style(style);
@@ -305,7 +361,7 @@ impl StudioApp {
 
     fn card_frame(ui: &egui::Ui) -> egui::Frame {
         egui::Frame::new()
-            .fill(ui.visuals().faint_bg_color.gamma_multiply(0.35))
+            .fill(ui.visuals().window_fill)
             .stroke(egui::Stroke::new(
                 1.0,
                 ui.visuals()
@@ -313,39 +369,76 @@ impl StudioApp {
                     .inactive
                     .bg_stroke
                     .color
-                    .gamma_multiply(0.8),
+                    .gamma_multiply(1.0),
             ))
-            .corner_radius(12)
-            .inner_margin(egui::Margin::symmetric(12, 10))
+            .corner_radius(10)
+            .inner_margin(egui::Margin::symmetric(10, 9))
     }
 
-    fn render_top_bar(&self, ui: &mut egui::Ui) {
+    fn chip(
+        ui: &mut egui::Ui,
+        text: impl Into<String>,
+        fill: egui::Color32,
+        stroke: egui::Color32,
+        text_color: egui::Color32,
+    ) {
+        egui::Frame::new()
+            .fill(fill)
+            .stroke(egui::Stroke::new(1.0, stroke))
+            .corner_radius(14)
+            .inner_margin(egui::Margin::symmetric(8, 3))
+            .show(ui, |ui| {
+                ui.label(egui::RichText::new(text.into()).small().color(text_color));
+            });
+    }
+
+    fn status_style(&self) -> (&'static str, egui::Color32, egui::Color32) {
+        if self.turn_in_flight {
+            (
+                "Running",
+                egui::Color32::from_rgb(189, 128, 37),
+                egui::Color32::from_rgb(243, 219, 167),
+            )
+        } else if self.runtime_disconnected {
+            (
+                "Disconnected",
+                egui::Color32::from_rgb(186, 66, 66),
+                egui::Color32::from_rgb(249, 222, 222),
+            )
+        } else {
+            (
+                "Ready",
+                egui::Color32::from_rgb(41, 118, 95),
+                egui::Color32::from_rgb(219, 243, 234),
+            )
+        }
+    }
+
+    fn render_top_bar(&mut self, ui: &mut egui::Ui) {
+        let (status_label, status_text_color, status_fill) = self.status_style();
         ui.horizontal(|ui| {
+            if ui
+                .button(if self.chat_panel_expanded {
+                    "Hide chat"
+                } else {
+                    "Show chat"
+                })
+                .clicked()
+            {
+                self.chat_panel_expanded = !self.chat_panel_expanded;
+            }
             ui.label(
                 egui::RichText::new("mjolne_vibes studio")
-                    .heading()
                     .strong()
-                    .color(egui::Color32::from_rgb(228, 235, 245)),
+                    .color(studio_text()),
             );
-            ui.add_space(12.0);
-            let status_color = if self.turn_in_flight {
-                egui::Color32::from_rgb(241, 179, 61)
-            } else if self.runtime_disconnected {
-                egui::Color32::from_rgb(227, 92, 92)
-            } else {
-                egui::Color32::from_rgb(94, 192, 131)
-            };
-            ui.colored_label(
-                status_color,
-                if self.turn_in_flight {
-                    "Running"
-                } else if self.runtime_disconnected {
-                    "Disconnected"
-                } else {
-                    "Ready"
-                },
+            Self::chip(
+                ui,
+                status_label,
+                status_fill,
+                status_text_color.gamma_multiply(0.35),
+                status_text_color,
             );
-
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(
                     egui::RichText::new(format!(
@@ -353,7 +446,8 @@ impl StudioApp {
                         self.settings.model_provider, self.settings.model
                     ))
                     .small()
-                    .monospace(),
+                    .monospace()
+                    .color(studio_muted_text()),
                 );
             });
         });
@@ -483,6 +577,7 @@ impl StudioApp {
                 self.turn_in_flight = false;
                 let assistant_preview = summarize_for_canvas(&result.final_text);
                 self.record_turn_summary(message, assistant_preview, result.trace.tool_calls);
+                self.record_tool_cards(&result.tool_calls);
                 self.chat_history
                     .push(ChatEntry::assistant(result.final_text));
                 self.canvas_status = "Idle".to_owned();
@@ -516,6 +611,23 @@ impl StudioApp {
         }
     }
 
+    fn record_tool_cards(&mut self, tool_calls: &[ExecutedToolCall]) {
+        for call in tool_calls {
+            let preview = summarize_for_canvas(&call.output);
+            self.canvas_tool_cards.push(CanvasToolCard {
+                id: format!("tool-card-{}", self.next_tool_card_id),
+                title: call.tool_name.clone(),
+                body: preview,
+            });
+            self.next_tool_card_id = self.next_tool_card_id.saturating_add(1);
+        }
+
+        if self.canvas_tool_cards.len() > MAX_CANVAS_TOOL_CARDS {
+            let extra = self.canvas_tool_cards.len() - MAX_CANVAS_TOOL_CARDS;
+            self.canvas_tool_cards.drain(0..extra);
+        }
+    }
+
     fn submit_prompt(&mut self) {
         let message = self.input_buffer.trim().to_owned();
         if message.is_empty() {
@@ -541,30 +653,33 @@ impl StudioApp {
     }
 
     fn render_chat_pane(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("Chat").heading().strong());
+        const COMPOSER_SECTION_HEIGHT: f32 = 170.0;
+
+        ui.label(
+            egui::RichText::new("Chat")
+                .heading()
+                .strong()
+                .color(studio_text()),
+        );
+        ui.label(
+            egui::RichText::new(format!(
+                "{} / {}",
+                self.settings.model_provider, self.settings.model
+            ))
+            .small()
+            .monospace()
+            .color(studio_muted_text()),
+        );
+        ui.label(
+            egui::RichText::new(self.workspace_root.display().to_string())
+                .small()
+                .color(studio_muted_text()),
+        );
 
         Self::card_frame(ui).show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    egui::RichText::new(format!("Provider: {}", self.settings.model_provider))
-                        .small(),
-                );
-                ui.separator();
-                ui.label(egui::RichText::new(format!("Model: {}", self.settings.model)).small());
-            });
-            ui.label(
-                egui::RichText::new(format!("Workspace: {}", self.workspace_root.display()))
-                    .small()
-                    .monospace(),
-            );
-        });
-
-        Self::card_frame(ui).show(ui, |ui| {
-            ui.label(egui::RichText::new("Conversation").strong().small());
-            ui.add_space(2.0);
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
-                .max_height((ui.available_height() - 260.0).max(180.0))
+                .max_height((ui.available_height() - COMPOSER_SECTION_HEIGHT).max(140.0))
                 .show(ui, |ui| {
                     for entry in &self.chat_history {
                         self.render_chat_entry(ui, entry);
@@ -573,7 +688,6 @@ impl StudioApp {
         });
 
         Self::card_frame(ui).show(ui, |ui| {
-            ui.label(egui::RichText::new("Prompt").strong().small());
             ui.add(
                 egui::TextEdit::multiline(&mut self.input_buffer)
                     .hint_text("Ask the agent...")
@@ -584,165 +698,241 @@ impl StudioApp {
                 && !self.runtime_disconnected
                 && !self.input_buffer.trim().is_empty();
             ui.horizontal(|ui| {
-                if ui
-                    .add_enabled(
-                        can_send,
-                        egui::Button::new("Send").min_size(egui::vec2(120.0, 0.0)),
-                    )
-                    .clicked()
-                {
+                let send_button = egui::Button::new(
+                    egui::RichText::new("Send")
+                        .strong()
+                        .color(egui::Color32::from_rgb(250, 253, 255)),
+                )
+                .fill(studio_accent())
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(37, 90, 172)))
+                .min_size(egui::vec2(100.0, 28.0));
+                if ui.add_enabled(can_send, send_button).clicked() {
                     self.submit_prompt();
                 }
+
                 if self.turn_in_flight {
-                    ui.label(egui::RichText::new("Turn running...").small());
-                }
-                if self.runtime_disconnected {
-                    ui.colored_label(
-                        egui::Color32::from_rgb(227, 92, 92),
-                        "Runtime worker is disconnected.",
+                    ui.label(
+                        egui::RichText::new("Running...")
+                            .small()
+                            .color(egui::Color32::from_rgb(165, 112, 29)),
+                    );
+                } else if self.runtime_disconnected {
+                    ui.label(
+                        egui::RichText::new("Runtime disconnected")
+                            .small()
+                            .color(egui::Color32::from_rgb(183, 63, 63)),
                     );
                 }
             });
         });
     }
 
-    fn render_canvas_pane(&mut self, ui: &mut egui::Ui) {
-        ui.label(egui::RichText::new("Canvas").heading().strong());
-
-        Self::card_frame(ui).show(ui, |ui| {
-            ui.label(
-                egui::RichText::new(format!("Status: {}", self.canvas_status))
-                    .small()
-                    .strong(),
-            );
-            ui.horizontal_wrapped(|ui| {
-                let revision = self.canvas.graph().map(|graph| graph.revision);
-                let node_count = self.canvas.graph().map_or(0, |graph| graph.nodes.len());
-                let edge_count = self.canvas.graph().map_or(0, |graph| graph.edges.len());
-                ui.label(egui::RichText::new(format!("rev {}", revision.unwrap_or(0))).small());
-                ui.separator();
-                ui.label(egui::RichText::new(format!("{node_count} nodes")).small());
-                ui.separator();
-                ui.label(egui::RichText::new(format!("{edge_count} edges")).small());
-                ui.separator();
-                ui.label(
-                    egui::RichText::new(format!("changed {}", self.changed_node_ids.len())).small(),
-                );
-                ui.separator();
-                ui.label(
-                    egui::RichText::new(format!(
-                        "impact {}",
-                        if self.impact_overlay_enabled {
-                            self.impact_node_ids.len().to_string()
-                        } else {
-                            "hidden".to_owned()
-                        }
-                    ))
-                    .small(),
-                );
-            });
-            if let Some(trigger) = &self.graph_last_trigger {
-                ui.label(egui::RichText::new(format!("Last trigger: {trigger}")).small());
+    fn render_chat_rail(&mut self, ui: &mut egui::Ui) {
+        ui.vertical_centered(|ui| {
+            if ui.button(">").clicked() {
+                self.chat_panel_expanded = true;
             }
-            if ui
-                .checkbox(
-                    &mut self.impact_overlay_enabled,
-                    "Show 1-hop impact overlay",
-                )
-                .changed()
-            {
-                self.apply_graph_visualization();
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("chat")
+                    .small()
+                    .strong()
+                    .color(studio_muted_text()),
+            );
+            ui.label(
+                egui::RichText::new(self.chat_history.len().to_string())
+                    .small()
+                    .color(studio_muted_text()),
+            );
+            if self.turn_in_flight {
+                ui.add(egui::Spinner::new());
             }
         });
+    }
 
-        Self::card_frame(ui).show(ui, |ui| {
-            ui.label(egui::RichText::new("Graph View").strong().small());
-            render_graph_snapshot(
+    fn render_canvas_surface(&mut self, ui: &mut egui::Ui, surface_height: f32) {
+        // Canvas surface dispatch point for future renderers (timeline, diffs, notes).
+        match self.active_canvas_surface {
+            CanvasSurfaceKind::ArchitectureGraph => render_graph_snapshot(
                 ui,
                 &self.canvas,
-                &self.changed_node_ids,
-                &self.impact_node_ids,
-                self.impact_overlay_enabled,
+                &mut self.canvas_viewport,
+                GraphRenderOptions {
+                    changed_node_ids: &self.changed_node_ids,
+                    impact_node_ids: &self.impact_node_ids,
+                    show_impact_overlay: self.impact_overlay_enabled,
+                    surface_height,
+                    tool_cards: &self.canvas_tool_cards,
+                },
+            ),
+        }
+    }
+
+    fn render_canvas_pane(&mut self, ui: &mut egui::Ui) {
+        let revision = self.canvas.graph().map_or(0, |graph| graph.revision);
+        let node_count = self.canvas.graph().map_or(0, |graph| graph.nodes.len());
+        let edge_count = self.canvas.graph().map_or(0, |graph| graph.edges.len());
+        let mut overlay_changed = false;
+
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                egui::RichText::new("Canvas")
+                    .heading()
+                    .strong()
+                    .color(studio_text()),
             );
+            Self::chip(
+                ui,
+                self.active_canvas_surface.label(),
+                egui::Color32::from_rgb(231, 238, 248),
+                egui::Color32::from_rgb(172, 192, 223),
+                egui::Color32::from_rgb(45, 82, 141),
+            );
+            Self::chip(
+                ui,
+                format!("rev {revision}"),
+                egui::Color32::from_rgb(239, 244, 250),
+                studio_border(),
+                studio_muted_text(),
+            );
+            Self::chip(
+                ui,
+                format!("{node_count} nodes / {edge_count} edges"),
+                egui::Color32::from_rgb(239, 244, 250),
+                studio_border(),
+                studio_muted_text(),
+            );
+            Self::chip(
+                ui,
+                format!("changed {}", self.changed_node_ids.len()),
+                egui::Color32::from_rgb(255, 237, 218),
+                egui::Color32::from_rgb(223, 167, 108),
+                egui::Color32::from_rgb(153, 100, 34),
+            );
+            if self.impact_overlay_enabled {
+                Self::chip(
+                    ui,
+                    format!("impact {}", self.impact_node_ids.len()),
+                    egui::Color32::from_rgb(224, 240, 251),
+                    egui::Color32::from_rgb(146, 184, 214),
+                    egui::Color32::from_rgb(43, 97, 140),
+                );
+            }
+            overlay_changed = ui
+                .checkbox(&mut self.impact_overlay_enabled, "Show impact")
+                .changed();
+            if ui.button("−").clicked() {
+                self.canvas_viewport.zoom_out();
+            }
+            if ui
+                .button(format!("{}%", self.canvas_viewport.zoom_percent()))
+                .clicked()
+            {
+                self.canvas_viewport.reset();
+            }
+            if ui.button("+").clicked() {
+                self.canvas_viewport.zoom_in();
+            }
+            if ui.button("Fit").clicked() {
+                self.canvas_viewport.fit_to_view();
+            }
         });
 
-        if !self.canvas.annotations().is_empty() {
-            Self::card_frame(ui).show(ui, |ui| {
-                ui.label(egui::RichText::new("Annotations").strong().small());
-                for annotation in self.canvas.annotations() {
-                    if let Some(node_id) = &annotation.node_id {
-                        ui.label(format!("- {} ({node_id})", annotation.text));
-                    } else {
-                        ui.label(format!("- {}", annotation.text));
-                    }
-                }
-            });
+        if let Some(trigger) = &self.graph_last_trigger {
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} · trigger {} · turns {}",
+                    self.canvas_status,
+                    trigger,
+                    self.turn_summaries.len()
+                ))
+                .small()
+                .color(studio_muted_text()),
+            );
+        } else {
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} · turns {}",
+                    self.canvas_status,
+                    self.turn_summaries.len()
+                ))
+                .small()
+                .color(studio_muted_text()),
+            );
+        }
+        if overlay_changed {
+            self.apply_graph_visualization();
+        }
+
+        let annotation_height = if self.canvas.annotations().is_empty() {
+            0.0
+        } else {
+            46.0
+        };
+        let stage_height = (ui.available_height() - annotation_height).max(260.0);
+
+        Self::card_frame(ui).show(ui, |ui| {
+            let surface_height = (stage_height - 14.0).max(240.0);
+            self.render_canvas_surface(ui, surface_height);
+        });
+
+        if self.canvas.annotations().is_empty() {
+            return;
         }
 
         Self::card_frame(ui).show(ui, |ui| {
-            ui.label(egui::RichText::new("Recent Turns").strong().small());
-            if self.turn_summaries.is_empty() {
-                ui.label(egui::RichText::new("No turn summaries yet.").small());
-                return;
-            }
-
-            egui::ScrollArea::vertical()
-                .max_height((ui.available_height() - 200.0).max(120.0))
-                .show(ui, |ui| {
-                    for summary in self.turn_summaries.iter().rev() {
-                        egui::Frame::new()
-                            .fill(ui.visuals().extreme_bg_color.gamma_multiply(0.8))
-                            .corner_radius(8)
-                            .inner_margin(egui::Margin::symmetric(10, 8))
-                            .show(ui, |ui| {
-                                ui.label(egui::RichText::new("Turn").strong().small());
-                                ui.label(format!("User: {}", summary.user_message));
-                                ui.label(format!("Assistant: {}", summary.assistant_preview));
-                                ui.label(
-                                    egui::RichText::new(format!(
-                                        "Tool calls: {}",
-                                        summary.tool_call_count
-                                    ))
-                                    .small(),
-                                );
-                            });
-                        ui.add_space(6.0);
-                    }
-                });
+            ui.horizontal_wrapped(|ui| {
+                for annotation in self.canvas.annotations().iter().take(10) {
+                    let text = if let Some(node_id) = &annotation.node_id {
+                        format!("{} ({node_id})", annotation.text)
+                    } else {
+                        annotation.text.clone()
+                    };
+                    Self::chip(
+                        ui,
+                        text,
+                        egui::Color32::from_rgb(240, 245, 251),
+                        studio_border(),
+                        studio_muted_text(),
+                    );
+                }
+            });
         });
     }
 
     fn render_chat_entry(&self, ui: &mut egui::Ui, entry: &ChatEntry) {
-        let (fill, accent) = match entry.speaker {
+        let (fill, accent, text_color) = match entry.speaker {
             ChatSpeaker::User => (
-                egui::Color32::from_rgb(34, 52, 78),
-                egui::Color32::from_rgb(130, 170, 232),
+                egui::Color32::from_rgb(236, 243, 252),
+                egui::Color32::from_rgb(146, 174, 212),
+                egui::Color32::from_rgb(38, 71, 113),
             ),
             ChatSpeaker::Assistant => (
-                egui::Color32::from_rgb(34, 66, 54),
-                egui::Color32::from_rgb(118, 212, 163),
+                egui::Color32::from_rgb(240, 247, 241),
+                egui::Color32::from_rgb(149, 190, 163),
+                egui::Color32::from_rgb(36, 90, 68),
             ),
             ChatSpeaker::System => (
-                egui::Color32::from_rgb(72, 58, 29),
-                egui::Color32::from_rgb(230, 188, 84),
+                egui::Color32::from_rgb(246, 246, 248),
+                egui::Color32::from_rgb(193, 198, 208),
+                egui::Color32::from_rgb(81, 90, 106),
             ),
         };
 
         egui::Frame::new()
-            .fill(fill.gamma_multiply(0.7))
-            .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.65)))
-            .corner_radius(9)
-            .inner_margin(egui::Margin::symmetric(10, 8))
+            .fill(fill)
+            .stroke(egui::Stroke::new(1.0, accent))
+            .corner_radius(8)
+            .inner_margin(egui::Margin::symmetric(8, 7))
             .show(ui, |ui| {
                 ui.label(
                     egui::RichText::new(entry.speaker.label())
-                        .strong()
                         .small()
                         .color(accent),
                 );
-                ui.label(&entry.text);
+                ui.label(egui::RichText::new(&entry.text).color(text_color));
             });
-        ui.add_space(6.0);
+        ui.add_space(4.0);
     }
 }
 
@@ -855,27 +1045,50 @@ impl eframe::App for StudioApp {
         self.drain_graph_updates();
 
         egui::TopBottomPanel::top("studio_header")
-            .exact_height(44.0)
+            .exact_height(42.0)
             .frame(
                 egui::Frame::new()
-                    .fill(ctx.style().visuals.panel_fill.gamma_multiply(1.08))
+                    .fill(egui::Color32::from_rgb(242, 246, 251))
                     .stroke(egui::Stroke::new(
                         1.0,
-                        ctx.style().visuals.widgets.inactive.bg_stroke.color,
+                        egui::Color32::from_rgb(199, 212, 229),
                     ))
-                    .inner_margin(egui::Margin::symmetric(12, 8)),
+                    .inner_margin(egui::Margin::symmetric(10, 7)),
             )
             .show(ctx, |ui| self.render_top_bar(ui));
 
-        egui::SidePanel::left("studio_chat_pane")
-            .resizable(true)
-            .default_width(420.0)
-            .min_width(320.0)
-            .frame(egui::Frame::side_top_panel(&ctx.style()))
-            .show(ctx, |ui| self.render_chat_pane(ui));
+        if self.chat_panel_expanded {
+            egui::SidePanel::left("studio_chat_pane")
+                .resizable(true)
+                .default_width(305.0)
+                .min_width(250.0)
+                .max_width(420.0)
+                .frame(
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgb(245, 249, 253))
+                        .inner_margin(egui::Margin::symmetric(10, 9)),
+                )
+                .show(ctx, |ui| self.render_chat_pane(ui));
+        } else {
+            egui::SidePanel::left("studio_chat_rail")
+                .resizable(false)
+                .default_width(52.0)
+                .min_width(52.0)
+                .max_width(52.0)
+                .frame(
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgb(245, 249, 253))
+                        .inner_margin(egui::Margin::symmetric(6, 7)),
+                )
+                .show(ctx, |ui| self.render_chat_rail(ui));
+        }
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::central_panel(&ctx.style()))
+            .frame(
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(248, 251, 255))
+                    .inner_margin(egui::Margin::symmetric(10, 9)),
+            )
             .show(ctx, |ui| self.render_canvas_pane(ui));
 
         ctx.request_repaint_after(Duration::from_millis(120));

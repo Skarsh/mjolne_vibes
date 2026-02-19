@@ -8,12 +8,13 @@ It supports:
 - interactive REPL (`repl`)
 - evaluation runs (`eval`)
 - optional HTTP transport (`serve`)
-- native desktop studio UI (`studio`)
+- native desktop studio UI (`studio`) with collapsible chat rail and interactive canvas
 
 ## Core behavior
 
 - Provider selection via config (`ollama` default, `openai` fallback).
 - Shared agent loop across CLI, eval, and HTTP.
+- `studio` canvas supports pan/zoom/fit controls and overlays recent tool-call cards for agent-driven workflows.
 - Strict, typed v1 tools:
   - `search_notes(query: string, limit: u8)`
   - `fetch_url(url: string)`

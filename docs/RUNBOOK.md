@@ -73,6 +73,7 @@ cargo run -- studio
 
 `studio` opens a native desktop window and requires a graphical session.
 When running, it auto-refreshes workspace graph stats after chat-turn completion and debounced Rust file changes.
+The UI is canvas-first with a collapsible chat rail, canvas pan/zoom/fit controls, and tool-call cards rendered directly on the canvas stage.
 
 HTTP endpoints:
 - `GET /health`

@@ -32,8 +32,8 @@ Implemented in-repo:
 src/
   graph/mod.rs     # deterministic Rust file/module graph builder
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
-  studio/mod.rs    # native egui shell; chat pane + canvas pane
-  studio/canvas.rs # canvas state reducer + read-only graph renderer
+  studio/mod.rs    # native egui shell; collapsible chat rail + canvas-first stage
+  studio/canvas.rs # canvas state reducer + interactive graph renderer (pan/zoom/tool cards)
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
@@ -62,7 +62,11 @@ Runtime flow (implemented + planned):
    - highlight changed nodes
    - optionally include 1-hop impact nodes when the canvas overlay toggle is enabled
    - publish overlay annotations for changed/impact summaries
-7. `studio/canvas.rs` renders a deterministic read-only node/edge graph preview with style hints for changed and impact nodes.
+7. `studio/canvas.rs` renders an interactive node/edge graph stage with:
+   - pan + scroll-wheel zoom viewport controls
+   - fit/reset controls surfaced in the canvas toolbar
+   - tool-call cards overlaid on-canvas from executed agent tool calls
+8. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceKind` + typed render options so additional non-graph surfaces can be added without changing runtime/tool contracts.
 
 Planned failure handling:
 - Canvas or graph refresh failures must not fail chat turns.
