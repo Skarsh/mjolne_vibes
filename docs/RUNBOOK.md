@@ -47,6 +47,18 @@ MODEL=gpt-4.1-mini
 OPENAI_API_KEY=...
 ```
 
+Optional web-fetch profile (larger/redirecting sites):
+
+```env
+# Keep allowlist scoped to trusted domains.
+FETCH_URL_ALLOWED_DOMAINS=example.com
+FETCH_URL_FOLLOW_REDIRECTS=true
+FETCH_URL_MAX_BYTES=250000
+AGENT_MAX_OUTPUT_CHARS=150000
+MODEL_TIMEOUT_MS=120000
+MODEL_MAX_RETRIES=1
+```
+
 ## Commands
 
 ```bash
@@ -74,6 +86,7 @@ cargo test --all-targets --all-features
 
 - Provider errors: verify model/provider settings and connectivity.
 - `fetch_url` blocks: check allowlist/content-type/size limits.
+- `fetch_url` invalid URL errors: include full scheme in prompts (for example, `https://example.com`).
 - Loop/limit errors: check guardrail env values and turn trace logs.
 
 ## Legacy detail
