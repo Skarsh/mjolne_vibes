@@ -66,35 +66,42 @@ async fn handle_chat(State(state): State<AppState>, Json(req): Json<ChatRequest>
     match run_chat_turn(&state.settings, &req.message).await {
         Ok(outcome) => (StatusCode::OK, Json(outcome)).into_response(),
         Err(error) => {
-            let status = status_code_for_error(&error);
+            let details = error_details(&error);
+            let status = status_code_for_error(&details);
             warn!(
                 status = status.as_u16(),
                 error = %error,
                 "HTTP chat request failed"
             );
-            let body = ErrorBody {
-                error: error.to_string(),
-            };
+            let body = ErrorBody { error: details };
             (status, Json(body)).into_response()
         }
     }
 }
 
-fn status_code_for_error(error: &anyhow::Error) -> StatusCode {
-    let message = error.to_string();
+fn error_details(error: &anyhow::Error) -> String {
+    error
+        .chain()
+        .map(std::string::ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(": ")
+}
 
-    if message.contains("input exceeds configured character limit")
-        || message.contains("output exceeds configured character limit")
-        || message.contains("tool call budget exceeded")
-        || message.contains("max_steps")
-        || message.contains("policy blocked")
-        || message.contains("unknown tool")
-        || message.contains("invalid tool arguments")
+fn status_code_for_error(details: &str) -> StatusCode {
+    if details.contains("input exceeds configured character limit")
+        || details.contains("output exceeds configured character limit")
+        || details.contains("tool call budget exceeded")
+        || details.contains("max_steps")
+        || details.contains("policy blocked")
+        || details.contains("unknown tool")
+        || details.contains("invalid tool arguments")
+        || details.contains("AGENT_MAX_INPUT_CHARS")
+        || details.contains("AGENT_MAX_OUTPUT_CHARS")
     {
         return StatusCode::BAD_REQUEST;
     }
 
-    if message.contains("model chat failed") || message.contains("tool dispatch failed") {
+    if details.contains("model chat failed") || details.contains("tool dispatch failed") {
         return StatusCode::BAD_GATEWAY;
     }
 
@@ -105,15 +112,18 @@ fn status_code_for_error(error: &anyhow::Error) -> StatusCode {
 mod tests {
     use axum::http::StatusCode;
 
-    use super::status_code_for_error;
+    use super::{error_details, status_code_for_error};
 
     #[test]
     fn status_code_classifies_validation_and_policy_errors() {
         let input_error = anyhow::anyhow!("input exceeds configured character limit (4000 chars)");
         let policy_error = anyhow::anyhow!("tool dispatch failed for `fetch_url`: policy blocked");
-        assert_eq!(status_code_for_error(&input_error), StatusCode::BAD_REQUEST);
         assert_eq!(
-            status_code_for_error(&policy_error),
+            status_code_for_error(&error_details(&input_error)),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            status_code_for_error(&error_details(&policy_error)),
             StatusCode::BAD_REQUEST
         );
     }
@@ -121,6 +131,19 @@ mod tests {
     #[test]
     fn status_code_classifies_upstream_errors() {
         let model_error = anyhow::anyhow!("model chat failed for provider ollama at step 1");
-        assert_eq!(status_code_for_error(&model_error), StatusCode::BAD_GATEWAY);
+        assert_eq!(
+            status_code_for_error(&error_details(&model_error)),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn status_code_uses_error_chain_for_wrapped_validation_errors() {
+        let wrapped = anyhow::anyhow!("chat turn failed")
+            .context("user input exceeded AGENT_MAX_INPUT_CHARS limit: 4101 chars (max 4000)");
+        assert_eq!(
+            status_code_for_error(&error_details(&wrapped)),
+            StatusCode::BAD_REQUEST
+        );
     }
 }

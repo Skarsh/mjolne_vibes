@@ -154,13 +154,15 @@ Acceptance criteria:
 
 Status:
 
-- [ ] In progress
+- [x] Completed (2026-02-19)
 
 Implementation notes:
 
 - `--json` output mode is implemented for one-shot CLI chat via `cargo run -- chat "..." --json`, emitting structured final text + trace + tool call details from the shared agent loop (2026-02-19).
 - Optional HTTP endpoint is implemented using `axum` as `cargo run -- serve --bind 127.0.0.1:8080`, exposing `GET /health` and `POST /chat` while reusing the same one-turn agent loop path as CLI/eval (`run_chat_turn`) (2026-02-19).
 - Runbook and safety docs were updated for the new interfaces and transport behavior (2026-02-19).
+- CLI vs HTTP parity smoke checks are completed: normal one-turn chat succeeds on both paths with structured turn output, and oversized input is blocked consistently (`chat --json` returns non-zero; `POST /chat` returns HTTP 400 with explicit guardrail reason) (2026-02-19).
+- Clean-machine setup-time validation (<15 minutes) is deferred for now by maintainer choice and is not currently tracked as an active board task (2026-02-19).
 
 ## Notes
 

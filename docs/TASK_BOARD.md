@@ -62,8 +62,7 @@ Progress notes (2026-02-18):
 
 ## Upcoming: Phase 5
 
-- [ ] Validate docs-driven new-machine setup duration target (<15 minutes) on a clean environment.
-- [ ] Run explicit CLI vs HTTP behavior parity smoke checks and record notes.
+- [x] Run explicit CLI vs HTTP behavior parity smoke checks and record notes. (2026-02-19, verified one-turn JSON response parity and guardrail parity for oversized input across `chat --json` and `POST /chat`)
 
 ## Usage notes
 
