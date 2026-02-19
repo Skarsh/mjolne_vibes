@@ -8,6 +8,7 @@ It supports:
 - interactive REPL (`repl`)
 - evaluation runs (`eval`)
 - optional HTTP transport (`serve`)
+- native desktop studio UI (`studio`)
 
 ## Core behavior
 
@@ -35,6 +36,7 @@ cargo run -- chat "hello" --json
 cargo run -- repl
 cargo run -- eval
 cargo run -- serve --bind 127.0.0.1:8080
+cargo run -- studio
 ```
 
 ## Quality checks

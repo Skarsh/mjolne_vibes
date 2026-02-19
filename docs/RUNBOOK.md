@@ -68,7 +68,10 @@ cargo run -- repl
 cargo run -- repl --verbose
 cargo run -- eval
 cargo run -- serve --bind 127.0.0.1:8080
+cargo run -- studio
 ```
+
+`studio` opens a native desktop window and requires a graphical session.
 
 HTTP endpoints:
 - `GET /health`

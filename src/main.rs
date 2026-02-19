@@ -8,6 +8,7 @@ use mjolne_vibes::agent::{run_chat, run_chat_json, run_repl};
 use mjolne_vibes::config::AgentSettings;
 use mjolne_vibes::eval::{DEFAULT_EVAL_CASES_PATH, run_eval_command};
 use mjolne_vibes::server::run_http_server;
+use mjolne_vibes::studio::run_studio;
 
 static FILE_LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
@@ -45,6 +46,8 @@ enum Commands {
         #[arg(long, default_value = "127.0.0.1:8080")]
         bind: String,
     },
+    /// Start native studio UI with chat and canvas panes.
+    Studio,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,9 +62,10 @@ impl LogMode {
         match command {
             Commands::Repl { verbose: true } => Self::ReplVerbose,
             Commands::Repl { verbose: false } => Self::ReplQuiet,
-            Commands::Chat { .. } | Commands::Eval { .. } | Commands::Serve { .. } => {
-                Self::Standard
-            }
+            Commands::Chat { .. }
+            | Commands::Eval { .. }
+            | Commands::Serve { .. }
+            | Commands::Studio => Self::Standard,
         }
     }
 }
@@ -86,6 +90,7 @@ async fn main() -> Result<()> {
             run_eval_command(&settings, std::path::Path::new(&cases)).await?
         }
         Commands::Serve { bind } => run_http_server(&settings, &bind).await?,
+        Commands::Studio => run_studio(&settings)?,
     }
 
     Ok(())
@@ -191,6 +196,15 @@ mod tests {
         match cli.command {
             Commands::Serve { bind } => assert_eq!(bind, "127.0.0.1:8080"),
             _ => panic!("expected serve command"),
+        }
+    }
+
+    #[test]
+    fn studio_command_is_available() {
+        let cli = Cli::try_parse_from(["mjolne_vibes", "studio"]).expect("parse should succeed");
+        match cli.command {
+            Commands::Studio => {}
+            _ => panic!("expected studio command"),
         }
     }
 }
