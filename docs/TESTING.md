@@ -1,10 +1,6 @@
 # Testing
 
-Testing strategy for v1 implementation.
-
-## Quality gates
-
-Run before considering a task complete:
+## Required quality gates
 
 ```bash
 cargo fmt --all -- --check
@@ -12,81 +8,32 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo test --all-targets --all-features
 ```
 
-## Test layers
+## Test expectations
 
-## 1) Unit tests
+Unit tests should cover:
+- config parsing/defaults
+- tool arg validation (including unknown-field rejection)
+- policy checks and limit enforcement
 
-Focus:
+Integration/behavior coverage should include:
+- one-turn chat success path
+- tool-call loop behavior
+- timeout/retry behavior
+- `chat --json` structure
+- HTTP `POST /chat` parity with CLI safety/limits
 
-- Config parsing defaults and env overrides.
-- Tool argument validation (including unknown field rejection).
-- Policy checks (allowlist, limits, blocking behavior).
+## Eval harness
 
-Suggested locations:
+- cases file: `eval/cases.yaml`
+- run: `cargo run -- eval`
+- optional custom suite: `cargo run -- eval --cases path/to/cases.yaml`
+- target pass rate: `>= 80%`
 
-- `src/config.rs`
-- `src/tools/*`
-- `src/state/*`
-- `src/agent/*` (loop limit logic)
+## Failure requirements
 
-## 2) Integration tests
+- failures must be diagnosable from logs/check output
+- policy blocks must include explicit reasons
 
-Focus:
+## Legacy detail
 
-- Chat turn with no tool call.
-- One-shot CLI JSON mode (`chat --json`) returns valid JSON with final text + trace metadata.
-- Provider selection path:
-  - local Ollama profile
-  - OpenAI fallback profile (when credentials are available)
-- Single tool call flow.
-- Multi-step tool call flow.
-- Tool timeout and retry behavior.
-- HTTP `POST /chat` reuses the same loop path and safety limits as CLI one-shot mode.
-
-Suggested layout:
-
-- `tests/chat_no_tool.rs`
-- `tests/tool_single_step.rs`
-- `tests/tool_multi_step.rs`
-- `tests/timeouts_and_retries.rs`
-- `tests/chat_json_mode.rs`
-- `tests/http_chat_transport.rs`
-
-## 3) Evaluation harness
-
-Dataset:
-
-- `eval/cases.yaml` with 20-30 representative prompts.
-
-Run command:
-
-```bash
-cargo run -- eval
-# optional custom file:
-cargo run -- eval --cases path/to/cases.yaml
-```
-
-Required checks:
-
-- Uses required tool when needed.
-- Does not invent tool output.
-- Produces expected final answer format.
-
-Target:
-
-- >= 80% pass rate on baseline suite.
-
-## 4) Manual smoke tests
-
-Minimum manual pass before v1:
-
-- Prefer running these in `cargo run -- repl` to speed up iterative validation.
-- 10 normal prompts.
-- 5 malformed/hostile prompts.
-- 5 prompts forcing blocked actions.
-
-## Failure handling expectations
-
-- Failures should include actionable logs.
-- Timeouts/retries should be visible in trace output.
-- Policy blocks should include explicit refusal reasons.
+Expanded testing notes were archived to `docs/legacy/2026-02/TESTING.md`.

@@ -1,113 +1,50 @@
 # Architecture
 
-Target architecture for v1 Rust AI agent.
-
 ## System intent
 
-- CLI-first agent that can chat and call a small tool set.
-- Support both one-shot (`chat`) and interactive (`repl`) CLI usage with shared loop behavior.
-- Support optional HTTP transport (`serve` with `axum`) that reuses the same one-turn loop behavior as CLI/eval.
-- Keep interactive (`repl`) terminal output low-noise by default while preserving detailed trace logs in file output.
-- Deterministic execution boundaries with limits and safety policies.
-- Clear module boundaries to isolate model API drift and tool complexity.
-- Provider-flexible model access: local Ollama default, OpenAI fallback.
+- CLI-first Rust agent with optional HTTP transport.
+- Single shared agent loop for one-turn execution paths.
+- Strong tool typing, explicit policies, deterministic limits.
 
-## Planned module layout
+## Module map
 
 ```text
 src/
-  lib.rs                # shared crate modules for bin + tests
-  main.rs               # CLI entry point
-  config.rs             # env/config loading and defaults
-  agent/mod.rs          # orchestration loop
-  server/mod.rs         # optional HTTP transport using shared loop
-  eval/mod.rs           # eval case loading and pass/fail harness
-  model/client.rs       # model API wrapper
-  tools/mod.rs          # tool arg schemas, registry, and dispatch
-  tools/search_notes.rs
-  tools/fetch_url.rs
-  tools/save_note.rs
-eval/
-  cases.yaml            # evaluation dataset
+  main.rs          # CLI entrypoint
+  config.rs        # env parsing + defaults
+  agent/mod.rs     # orchestration loop + REPL + JSON mode
+  model/client.rs  # provider adapters (ollama/openai)
+  tools/mod.rs     # tool schemas + dispatch + policy checks
+  eval/mod.rs      # eval harness and checks
+  server/mod.rs    # HTTP transport; delegates to agent loop
 ```
 
 ## Agent loop contract
 
-1. Build request from system instructions, history, and user input.
-2. Send request to model client.
+1. Build request from system prompt + conversation + user input.
+2. Call model provider through `model/client.rs`.
 3. If tool calls are returned:
-   - validate tool name and typed args
-   - apply policy checks
-   - execute tools with timeout/retry policy
-   - return tool outputs to model
-4. Repeat until final text response or stop condition.
-5. Return final answer plus trace metadata.
+   - validate tool name + typed args
+   - enforce policy limits
+   - execute tools with timeout
+   - append tool outputs and continue
+4. Stop on final text or guardrail/limit trigger.
+5. Return final text + trace metadata.
 
-## Stop conditions
-
-- Final text response produced.
-- `max_steps` reached.
-- Max tool-call budget reached.
-- Hard timeout reached.
-- Policy block triggered.
-
-## Tool contracts (v1)
-
-Use exactly these tool interfaces:
+## v1 tool contracts (fixed)
 
 - `search_notes(query: string, limit: u8)`
 - `fetch_url(url: string)`
 - `save_note(title: string, body: string)`
 
-Tool design rules:
-
-- Minimal, strongly typed args.
-- Reject unknown fields.
-- Return machine-readable JSON.
-
-Current Phase 2 implementation status:
-
-- Typed tool args are implemented in `src/tools/mod.rs` with `serde(deny_unknown_fields)`.
-- Tool registry and dispatcher are implemented in `src/tools/mod.rs` via `tool_definitions` and `dispatch_tool_call`.
-- Agent loop integration for tool calls is implemented in `src/agent/mod.rs`.
-- Per-tool timeout and per-turn tool-call cap are implemented in `src/agent/mod.rs` and configured through `src/config.rs` (`TOOL_TIMEOUT_MS`, `AGENT_MAX_TOOL_CALLS`).
-
-Current Phase 3 safety implementation status:
-
-- `fetch_url` domain allowlist enforcement is implemented in `src/tools/mod.rs`, with the allowed domains sourced from `src/config.rs` (`FETCH_URL_ALLOWED_DOMAINS`).
-- Per-step tool-call batching protection is enforced in `src/agent/mod.rs` via configurable `AGENT_MAX_TOOL_CALLS_PER_STEP` from `src/config.rs`.
-- Consecutive tool-call loop protection is enforced in `src/agent/mod.rs` via configurable `AGENT_MAX_CONSECUTIVE_TOOL_STEPS` from `src/config.rs`.
-- Input/output character limits are enforced in `src/agent/mod.rs` using runtime settings from `src/config.rs` (`AGENT_MAX_INPUT_CHARS`, `AGENT_MAX_OUTPUT_CHARS`).
-- `save_note` writes to a controlled notes directory (`NOTES_DIR`) with overwrite confirmation gating (`SAVE_NOTE_ALLOW_OVERWRITE`) in `src/tools/mod.rs`, with runtime config loaded via `src/config.rs`.
-
-Current Phase 4 observability implementation status:
-
-- Turn-level trace summary logs are emitted from `src/agent/mod.rs`, including step count, tool usage, and model/tool/turn latency metrics.
-- `fetch_url` now executes live HTTP retrieval in `src/tools/mod.rs` with allowlist checks, timeout-aware client behavior, content-type validation, and response byte-size limits.
-- Evaluation harness is implemented in `src/eval/mod.rs`, driven by `eval/cases.yaml` and evaluating required tool usage, grounding/no-invented output, and answer format checks.
-
-Current Phase 5 packaging implementation status:
-
-- CLI one-shot mode supports JSON output (`chat --json`) and emits machine-readable turn metadata from the shared loop.
-- Optional HTTP transport is implemented in `src/server/mod.rs` with `GET /health` and `POST /chat`.
-- HTTP `POST /chat` calls the same one-turn loop entrypoint (`run_chat_turn`) used by the evaluation harness.
-
 ## Boundary rules
 
-- `model/client.rs` must not encode business/tool policy.
-- `model/client.rs` should hide provider-specific details from the orchestration loop.
-- `tools/*` must not directly mutate global agent state.
-- `agent/mod.rs` owns loop control and step accounting.
-- `server/mod.rs` must stay transport-only and call into `agent/mod.rs` rather than duplicating loop logic.
-- `config.rs` is the source of runtime limits.
+- `model/client.rs`: provider protocol only; no business/safety policy.
+- `tools/mod.rs`: tool-level logic and validation only.
+- `agent/mod.rs`: loop control, limits, and step accounting.
+- `server/mod.rs`: transport-only; no duplicated loop logic.
+- `config.rs`: runtime limits and provider settings source.
 
-## Model provider policy
+## Legacy detail
 
-- Default local development provider: Ollama.
-- Supported fallback provider: OpenAI.
-- Provider should be selected by configuration (`MODEL_PROVIDER` + `MODEL`), not hardcoded.
-
-## Extension direction after v1
-
-- Optional migration to `rig` if it clearly reduces orchestration boilerplate.
-- Optional HTTP layer should reuse the same core loop and policies.
+Expanded architecture notes were archived to `docs/legacy/2026-02/ARCHITECTURE.md`.

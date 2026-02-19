@@ -1,76 +1,51 @@
 # Safety
 
-Safety and guardrail policy for v1.
+Safety policy for runtime behavior.
 
 ## Objectives
 
-- Prevent unsafe tool side effects.
-- Prevent runaway loops and unbounded cost.
-- Keep model outputs grounded in actual tool results.
+- Prevent unsafe side effects.
+- Prevent runaway loops and unbounded execution.
+- Keep answers grounded in tool outputs when tools are used.
 
-## Core limits
+## Enforced limits
 
-- `max_steps` per turn.
-- Max tool calls per turn (`AGENT_MAX_TOOL_CALLS`).
-- Max tool calls per model response step (`AGENT_MAX_TOOL_CALLS_PER_STEP`).
-- Max consecutive tool-call steps per turn (`AGENT_MAX_CONSECUTIVE_TOOL_STEPS`).
-- Input character limit (`AGENT_MAX_INPUT_CHARS`).
-- Output character limit (`AGENT_MAX_OUTPUT_CHARS`).
-- Per-tool timeout (`TOOL_TIMEOUT_MS`).
-- Fetch response byte limit (`FETCH_URL_MAX_BYTES`).
-- Overall turn timeout.
+- `AGENT_MAX_STEPS`
+- `AGENT_MAX_TOOL_CALLS`
+- `AGENT_MAX_TOOL_CALLS_PER_STEP`
+- `AGENT_MAX_CONSECUTIVE_TOOL_STEPS`
+- `AGENT_MAX_INPUT_CHARS`
+- `AGENT_MAX_OUTPUT_CHARS`
+- `TOOL_TIMEOUT_MS`
+- `FETCH_URL_MAX_BYTES`
+- model request timeout/retries (`MODEL_TIMEOUT_MS`, `MODEL_MAX_RETRIES`)
 
-## Tool safety policy
+## Tool policies
 
-## `fetch_url(url: string)`
+`fetch_url(url: string)`
+- allow only `http`/`https`
+- host must match `FETCH_URL_ALLOWED_DOMAINS`
+- enforce timeout, content-type checks, byte cap
 
-- Enforce strict domain allowlist (`FETCH_URL_ALLOWED_DOMAINS`).
-- Enforce byte-size cap (`FETCH_URL_MAX_BYTES`).
-- Enforce timeout.
-- Validate content type where applicable.
+`save_note(title: string, body: string)`
+- write only inside `NOTES_DIR`
+- reject unsafe/empty titles
+- block overwrite unless `SAVE_NOTE_ALLOW_OVERWRITE=true`
 
-## `save_note(title: string, body: string)`
+`search_notes(query: string, limit: u8)`
+- typed inputs only
+- bounded result count (`u8`)
 
-- Write only inside controlled notes directory.
-- Treat overwrite of an existing note as sensitive and require confirmation.
-- Confirmation path: set `SAVE_NOTE_ALLOW_OVERWRITE=true` to permit overwrite.
-- Reject path traversal and disallowed paths.
+## Validation and block behavior
 
-## `search_notes(query: string, limit: u8)`
+- Reject unknown fields in tool args.
+- Return explicit machine-readable errors for policy/validation failures.
+- HTTP `POST /chat` accepts only `{"message": string}` and rejects unknown fields.
 
-- Limit result count.
-- Return structured output only.
+## Transport parity
 
-## Validation policy
+CLI (`chat`, `chat --json`), eval, and HTTP (`POST /chat`) must use the same loop and safety path.
 
-- Reject unknown fields in tool arguments.
-- Reject invalid enum/range/type values.
-- Return machine-readable tool errors with explicit reason.
-- For HTTP transport (`POST /chat`), reject unknown request fields and require typed JSON input (`{"message": string}`).
+## Legacy detail
 
-## Block conditions
-
-Block and return refusal reason when:
-
-- Tool violates allowlist/path policy.
-- Input/output exceeds configured size limits.
-- Execution exceeds configured limits.
-- Tool args fail schema/policy validation.
-
-## Logging requirements
-
-Log per turn:
-
-- step count
-- tool calls and outcomes
-- model and tool latency metrics
-- retry count
-- timeout events
-- policy block events
-
-No sensitive key material should be logged.
-
-## Transport parity policy
-
-- CLI (`chat`, `chat --json`) and HTTP (`POST /chat`) must reuse the same agent loop and tool-policy enforcement path.
-- Adding a new transport must not bypass existing loop limits, tool limits, or tool safety policies.
+Expanded safety notes were archived to `docs/legacy/2026-02/SAFETY.md`.

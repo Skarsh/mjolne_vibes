@@ -1,46 +1,25 @@
 # Workflow
 
-Agentic workflow for implementing this project.
-
 ## Task cycle
 
 1. Pick one task from `docs/TASK_BOARD.md`.
-2. Confirm phase alignment in `docs/ROADMAP.md`.
-3. Implement smallest viable change.
+2. Confirm scope in `docs/ROADMAP.md`.
+3. Make the smallest viable change.
 4. Run relevant checks from `docs/TESTING.md`.
-5. Update docs/tests as needed.
-6. Mark task status and record notes.
-
-## Definition of ready
-
-Task is ready when:
-
-- It belongs to current active phase.
-- Inputs/outputs are clear.
-- A validation method is defined.
+5. Update docs for behavior/interface/policy changes.
+6. Update task status in `docs/TASK_BOARD.md`.
 
 ## Definition of done
-
-Task is done when:
 
 - Code compiles.
 - Relevant tests pass.
 - Safety constraints remain satisfied.
-- Related docs are updated.
-- Task status is updated in `docs/TASK_BOARD.md`.
+- Docs are updated where behavior changed.
+- Task board status is current.
 
-## Change sizing guidance
+## Documentation style rules
 
-- Prefer one focused behavior change per task.
-- Avoid coupling refactors with feature additions unless required.
-- Keep PR/review scope understandable in one pass.
-
-## Documentation update rule
-
-Update docs immediately when changing:
-
-- public CLI behavior
-- tool schema/contracts
-- safety policy
-- architecture boundaries
-- test strategy or quality gates
+- Keep active docs concise and task-oriented.
+- Avoid duplicating env vars, tool contracts, or limits across many files.
+- Prefer one source-of-truth doc section and link to it.
+- Move historical narrative to `docs/legacy/`.

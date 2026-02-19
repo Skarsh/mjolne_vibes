@@ -1,0 +1,71 @@
+# Task Board
+
+Execution task board for v1.
+
+## Current focus: Phase 5
+
+Completed in Phase 0 (2026-02-18):
+
+- [x] Add `config.rs` with env defaults and typed settings.
+- [x] Add model provider setting with `ollama` default and `openai` fallback.
+- [x] Add CLI parsing with `chat "<message>"` command.
+- [x] Add structured logging initialization.
+- [x] Add placeholder `agent` module and return path for chat command.
+
+## Completed tasks: Phase 1
+
+- [x] Set up local Ollama for validation (install/start service, run `ollama pull qwen2.5:3b`, verify `OLLAMA_BASE_URL` is reachable). (2026-02-18, Docker container + model pull + reachable API)
+- [x] Add model client wrapper module. (2026-02-18)
+- [x] Implement Ollama request path (`MODEL_PROVIDER=ollama`). (2026-02-18)
+- [x] Implement OpenAI request path (`MODEL_PROVIDER=openai`). (2026-02-18)
+- [x] Add basic system/user prompt request path. (2026-02-18)
+- [x] Add retry/backoff for transient failures. (2026-02-18)
+- [x] Add request timeout handling. (2026-02-18)
+- [x] Run manual stability validation across 10 prompts with local Ollama reachable. (2026-02-18, `10/10` passed, no failed runs)
+
+Progress notes (2026-02-18):
+
+- Confirmed phase-1 code path and retries/logging are working; all quality gates passed (`fmt`, `clippy -D warnings`, `test`).
+- Ollama is running in Docker on `http://localhost:11434` (`ollama/ollama:latest`).
+- Pulled model `qwen2.5:3b` in container and verified with `/api/tags` and `ollama list`.
+- Verified end-to-end CLI call: `cargo run -- chat "hello"` returns model output.
+- Completed manual stability validation on local Ollama: `10/10` successful prompts (`cargo run --quiet -- chat ...`), with non-empty model responses on every run.
+
+## Completed tasks: Phase 2
+
+- [x] Define tool schema types for three v1 tools. (2026-02-18, strict typed args with unknown-field rejection tests in `src/tools/mod.rs`)
+- [x] Add tool registry and dispatcher. (2026-02-18, `dispatch_tool_call` + registry list + unit coverage for unknown tool/invalid args/valid dispatch)
+- [x] Implement tool-call iteration loop. (2026-02-18, `agent::run_chat` now iterates model responses, executes tool calls, and feeds tool outputs back into context until final text or `max_steps`)
+- [x] Add per-tool timeout and tool-call cap. (2026-02-18, `AGENT_MAX_TOOL_CALLS` enforced per turn in `agent::run_chat`; per-tool timeout applied during dispatch with structured timeout errors)
+
+## Completed tasks: Phase 3
+
+- [x] Add minimal interactive CLI REPL mode for manual testing. (2026-02-18, `cargo run -- repl` with multi-turn session history and `/help`, `/reset`, `/exit`; quiet terminal logs by default with `--verbose` opt-in)
+- [x] Add URL/domain allowlist for `fetch_url`. (2026-02-18, configurable `FETCH_URL_ALLOWED_DOMAINS` enforced in tool dispatch with explicit policy-block errors for disallowed hosts)
+- [x] Add input/output length limits. (2026-02-18, configurable `AGENT_MAX_INPUT_CHARS` and `AGENT_MAX_OUTPUT_CHARS` enforced in the agent loop with explicit limit errors)
+- [x] Add confirmation gate for sensitive writes via `save_note`. (2026-02-18, writes restricted to `NOTES_DIR` with safe title normalization and overwrite confirmation gate via `SAVE_NOTE_ALLOW_OVERWRITE`)
+- [x] Add additional loop protections for runaway behavior. (2026-02-18, configurable `AGENT_MAX_CONSECUTIVE_TOOL_STEPS` blocks repeated tool-call-only iterations)
+
+## Completed tasks: Phase 4
+
+- [x] Add per-step tool-call batching cap for safety hardening. (2026-02-18, configurable `AGENT_MAX_TOOL_CALLS_PER_STEP` blocks oversized tool-call batches from one model response step)
+- [x] Emit trace logs for step count, tools used, and latency. (2026-02-18, turn trace summary emits step/tool counts, tool names, and model/tool/turn latency metrics in `src/agent/mod.rs`)
+- [x] Implement live `fetch_url` content retrieval (replace phase-2 stub payload, keep allowlist/safety checks). (2026-02-18, `src/tools/mod.rs` now performs HTTP retrieval with allowlist checks, timeout-aware fetch, content-type validation, and `FETCH_URL_MAX_BYTES` enforcement)
+- [x] Add evaluation harness driven by `eval/cases.yaml`. (2026-02-19, `src/eval/mod.rs` loads/validates cases, runs case prompts through the agent, and applies required-tool/grounding/format checks; CLI entrypoint `cargo run -- eval --cases ...`)
+- [x] Add initial evaluation cases and pass/fail checks. (2026-02-19, added 20 baseline cases in `eval/cases.yaml` with suite-level target pass rate and per-case expectations)
+
+## Completed tasks: Phase 5
+
+- [x] Finalize runbook and safety notes in docs. (2026-02-19, updated `README.md`, `docs/RUNBOOK.md`, `docs/SAFETY.md`, and `docs/ROADMAP.md` for `chat --json` and optional HTTP mode)
+- [x] Add `--json` output mode. (2026-02-19, `chat --json` now emits structured turn JSON from the same loop used by eval/HTTP)
+- [x] Optionally add HTTP endpoint (`axum`) reusing agent loop. (2026-02-19, added `serve --bind ...` with `GET /health` and `POST /chat` backed by `run_chat_turn`)
+
+## Upcoming: Phase 5
+
+- [x] Run explicit CLI vs HTTP behavior parity smoke checks and record notes. (2026-02-19, verified one-turn JSON response parity and guardrail parity for oversized input across `chat --json` and `POST /chat`)
+
+## Usage notes
+
+- Keep this file current as tasks move.
+- Add completion date and short note when checking off items.
+- Split large items into smaller tasks before starting implementation.
