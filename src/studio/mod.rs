@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
@@ -10,6 +11,7 @@ use tracing::{info, warn};
 
 use crate::agent::run_chat_turn;
 use crate::config::AgentSettings;
+use crate::graph::ArchitectureGraph;
 use crate::graph::watch::{GraphRefreshUpdate, GraphWatchHandle, spawn_graph_watch_worker};
 
 pub mod canvas;
@@ -21,6 +23,7 @@ use self::events::{CanvasOp, StudioCommand, StudioEvent, StudioTurnResult};
 const APP_TITLE: &str = "mjolne_vibes studio";
 const MAX_CANVAS_SUMMARIES: usize = 24;
 const CANVAS_PREVIEW_CHAR_LIMIT: usize = 180;
+const MAX_IMPACT_NODE_ANNOTATIONS: usize = 12;
 
 pub fn run_studio(settings: &AgentSettings) -> Result<()> {
     let runtime_handle = Handle::try_current().context("studio requires a tokio runtime")?;
@@ -187,6 +190,9 @@ struct StudioApp {
     canvas: CanvasState,
     canvas_status: String,
     graph_last_trigger: Option<String>,
+    changed_node_ids: Vec<String>,
+    impact_node_ids: Vec<String>,
+    impact_overlay_enabled: bool,
     turn_summaries: Vec<CanvasTurnSummary>,
     turn_in_flight: bool,
     runtime_disconnected: bool,
@@ -216,6 +222,9 @@ impl StudioApp {
             canvas: CanvasState::default(),
             canvas_status: "Idle".to_owned(),
             graph_last_trigger: None,
+            changed_node_ids: Vec::new(),
+            impact_node_ids: Vec::new(),
+            impact_overlay_enabled: false,
             turn_summaries: Vec::new(),
             turn_in_flight: false,
             runtime_disconnected: false,
@@ -267,13 +276,69 @@ impl StudioApp {
         let node_count = update.graph.nodes.len();
         let edge_count = update.graph.edges.len();
         let trigger = update.trigger.label().to_owned();
+        let delta = graph_change_delta(self.canvas.graph(), &update.graph);
+        self.changed_node_ids = delta.changed_node_ids;
+        self.impact_node_ids = delta.impact_node_ids;
         self.canvas.apply(CanvasOp::SetGraph {
             graph: update.graph,
         });
+        self.apply_graph_visualization();
         self.graph_last_trigger = Some(trigger.clone());
-        self.canvas_status = format!(
-            "Graph refreshed (rev {revision}, {node_count} nodes, {edge_count} edges, trigger: {trigger})"
-        );
+        self.canvas_status = if self.changed_node_ids.is_empty() {
+            format!(
+                "Graph refreshed (rev {revision}, {node_count} nodes, {edge_count} edges, trigger: {trigger})"
+            )
+        } else {
+            format!(
+                "Graph refreshed (rev {revision}, {node_count} nodes, {edge_count} edges, trigger: {trigger}, changed: {}, impact: {})",
+                self.changed_node_ids.len(),
+                self.impact_node_ids.len()
+            )
+        };
+    }
+
+    fn apply_graph_visualization(&mut self) {
+        self.canvas.apply(CanvasOp::HighlightNodes {
+            node_ids: build_highlight_node_ids(
+                &self.changed_node_ids,
+                &self.impact_node_ids,
+                self.impact_overlay_enabled,
+            ),
+        });
+
+        self.canvas.apply(CanvasOp::ClearAnnotations);
+        if self.changed_node_ids.is_empty() {
+            return;
+        }
+
+        self.canvas.apply(CanvasOp::AddAnnotation {
+            id: "changed-summary".to_owned(),
+            text: format!("Changed nodes: {}", self.changed_node_ids.len()),
+            node_id: None,
+        });
+
+        if !self.impact_overlay_enabled {
+            return;
+        }
+
+        self.canvas.apply(CanvasOp::AddAnnotation {
+            id: "impact-summary".to_owned(),
+            text: format!("1-hop impact nodes: {}", self.impact_node_ids.len()),
+            node_id: None,
+        });
+
+        for node_id in self
+            .impact_node_ids
+            .iter()
+            .take(MAX_IMPACT_NODE_ANNOTATIONS)
+            .cloned()
+        {
+            self.canvas.apply(CanvasOp::AddAnnotation {
+                id: format!("impact:{node_id}"),
+                text: "1-hop impact".to_owned(),
+                node_id: Some(node_id),
+            });
+        }
     }
 
     fn apply_event(&mut self, event: StudioEvent) {
@@ -406,7 +471,7 @@ impl StudioApp {
         }
     }
 
-    fn render_canvas_pane(&self, ui: &mut egui::Ui) {
+    fn render_canvas_pane(&mut self, ui: &mut egui::Ui) {
         ui.heading("Canvas");
         ui.label(format!("Status: {}", self.canvas_status));
         if let Some(graph) = self.canvas.graph() {
@@ -421,6 +486,24 @@ impl StudioApp {
             }
         } else {
             ui.label("Graph revision: pending initial refresh...");
+        }
+        if ui
+            .checkbox(
+                &mut self.impact_overlay_enabled,
+                "Show 1-hop impact overlay",
+            )
+            .changed()
+        {
+            self.apply_graph_visualization();
+        }
+        ui.label(format!("Changed nodes: {}", self.changed_node_ids.len()));
+        if self.impact_overlay_enabled {
+            ui.label(format!(
+                "1-hop impact nodes: {}",
+                self.impact_node_ids.len()
+            ));
+        } else {
+            ui.label("1-hop impact nodes: hidden");
         }
         ui.label(format!(
             "Highlighted nodes: {}",
@@ -458,6 +541,101 @@ impl StudioApp {
             }
         });
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct GraphChangeDelta {
+    changed_node_ids: Vec<String>,
+    impact_node_ids: Vec<String>,
+}
+
+fn graph_change_delta(
+    previous: Option<&ArchitectureGraph>,
+    current: &ArchitectureGraph,
+) -> GraphChangeDelta {
+    let Some(previous_graph) = previous else {
+        return GraphChangeDelta::default();
+    };
+
+    let previous_nodes_by_id = previous_graph
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect::<BTreeMap<_, _>>();
+    let current_nodes_by_id = current
+        .nodes
+        .iter()
+        .map(|node| (node.id.as_str(), node))
+        .collect::<BTreeMap<_, _>>();
+
+    let mut changed_node_ids = BTreeSet::new();
+
+    for node in &current.nodes {
+        match previous_nodes_by_id.get(node.id.as_str()) {
+            None => {
+                changed_node_ids.insert(node.id.clone());
+            }
+            Some(previous_node) if *previous_node != node => {
+                changed_node_ids.insert(node.id.clone());
+            }
+            Some(_) => {}
+        }
+    }
+
+    let previous_edges = previous_graph
+        .edges
+        .iter()
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let current_edges = current.edges.iter().cloned().collect::<BTreeSet<_>>();
+
+    for edge in current_edges.difference(&previous_edges) {
+        if current_nodes_by_id.contains_key(edge.from.as_str()) {
+            changed_node_ids.insert(edge.from.clone());
+        }
+        if current_nodes_by_id.contains_key(edge.to.as_str()) {
+            changed_node_ids.insert(edge.to.clone());
+        }
+    }
+
+    for edge in previous_edges.difference(&current_edges) {
+        if current_nodes_by_id.contains_key(edge.from.as_str()) {
+            changed_node_ids.insert(edge.from.clone());
+        }
+        if current_nodes_by_id.contains_key(edge.to.as_str()) {
+            changed_node_ids.insert(edge.to.clone());
+        }
+    }
+
+    let mut impact_node_ids = BTreeSet::new();
+    if !changed_node_ids.is_empty() {
+        for edge in &current.edges {
+            let from_changed = changed_node_ids.contains(edge.from.as_str());
+            let to_changed = changed_node_ids.contains(edge.to.as_str());
+            if from_changed && !to_changed {
+                impact_node_ids.insert(edge.to.clone());
+            } else if to_changed && !from_changed {
+                impact_node_ids.insert(edge.from.clone());
+            }
+        }
+    }
+
+    GraphChangeDelta {
+        changed_node_ids: changed_node_ids.into_iter().collect(),
+        impact_node_ids: impact_node_ids.into_iter().collect(),
+    }
+}
+
+fn build_highlight_node_ids(
+    changed_node_ids: &[String],
+    impact_node_ids: &[String],
+    include_impact_overlay: bool,
+) -> Vec<String> {
+    let mut highlighted = changed_node_ids.iter().cloned().collect::<BTreeSet<_>>();
+    if include_impact_overlay {
+        highlighted.extend(impact_node_ids.iter().cloned());
+    }
+    highlighted.into_iter().collect()
 }
 
 impl Drop for StudioApp {
@@ -499,7 +677,14 @@ fn summarize_for_canvas(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::summarize_for_canvas;
+    use std::time::UNIX_EPOCH;
+
+    use crate::graph::{
+        ArchitectureEdge, ArchitectureEdgeKind, ArchitectureGraph, ArchitectureNode,
+        ArchitectureNodeKind,
+    };
+
+    use super::{build_highlight_node_ids, graph_change_delta, summarize_for_canvas};
 
     #[test]
     fn summarize_for_canvas_truncates_long_text() {
@@ -507,5 +692,88 @@ mod tests {
         let summary = summarize_for_canvas(&long_text);
         assert_eq!(summary.chars().count(), 180);
         assert!(summary.ends_with('…'));
+    }
+
+    #[test]
+    fn graph_change_delta_is_empty_without_previous_graph() {
+        let current = graph_for_test(2, &["module:crate"], &[("module:crate", "module:crate")]);
+        let delta = graph_change_delta(None, &current);
+        assert!(delta.changed_node_ids.is_empty());
+        assert!(delta.impact_node_ids.is_empty());
+    }
+
+    #[test]
+    fn graph_change_delta_detects_added_nodes_and_one_hop_impact() {
+        let previous = graph_for_test(
+            1,
+            &["module:crate", "module:crate::tools"],
+            &[("module:crate", "module:crate::tools")],
+        );
+        let current = graph_for_test(
+            2,
+            &[
+                "module:crate",
+                "module:crate::tools",
+                "module:crate::tools::parser",
+            ],
+            &[
+                ("module:crate", "module:crate::tools"),
+                ("module:crate::tools", "module:crate::tools::parser"),
+            ],
+        );
+
+        let delta = graph_change_delta(Some(&previous), &current);
+        assert_eq!(
+            delta.changed_node_ids,
+            vec![
+                "module:crate::tools".to_owned(),
+                "module:crate::tools::parser".to_owned()
+            ]
+        );
+        assert_eq!(delta.impact_node_ids, vec!["module:crate".to_owned()]);
+    }
+
+    #[test]
+    fn build_highlight_node_ids_optionally_includes_impact_nodes() {
+        let changed = vec!["module:crate::tools".to_owned()];
+        let impact = vec!["module:crate".to_owned(), "module:crate::tools".to_owned()];
+
+        let without_overlay = build_highlight_node_ids(&changed, &impact, false);
+        assert_eq!(without_overlay, vec!["module:crate::tools".to_owned()]);
+
+        let with_overlay = build_highlight_node_ids(&changed, &impact, true);
+        assert_eq!(
+            with_overlay,
+            vec!["module:crate".to_owned(), "module:crate::tools".to_owned()]
+        );
+    }
+
+    fn graph_for_test(
+        revision: u64,
+        node_ids: &[&str],
+        edges: &[(&str, &str)],
+    ) -> ArchitectureGraph {
+        ArchitectureGraph {
+            nodes: node_ids.iter().copied().map(graph_node).collect(),
+            edges: edges
+                .iter()
+                .map(|(from, to)| ArchitectureEdge {
+                    from: (*from).to_owned(),
+                    to: (*to).to_owned(),
+                    relation: ArchitectureEdgeKind::DeclaresModule,
+                })
+                .collect(),
+            revision,
+            generated_at: UNIX_EPOCH,
+        }
+    }
+
+    fn graph_node(node_id: &str) -> ArchitectureNode {
+        ArchitectureNode {
+            id: node_id.to_owned(),
+            display_label: node_id.to_owned(),
+            kind: ArchitectureNodeKind::Module,
+            path: None,
+        }
     }
 }

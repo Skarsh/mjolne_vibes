@@ -58,6 +58,10 @@ Runtime flow (implemented + planned):
    - file-watch events (debounced)
    - chat-turn completion
 5. `studio` applies typed `CanvasOp` updates and re-renders canvas without blocking chat.
+6. On each post-startup graph refresh, `studio` diffs old/new graph snapshots to:
+   - highlight changed nodes
+   - optionally include 1-hop impact nodes when the canvas overlay toggle is enabled
+   - publish overlay annotations for changed/impact summaries
 
 Planned failure handling:
 - Canvas or graph refresh failures must not fail chat turns.

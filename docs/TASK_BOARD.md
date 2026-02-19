@@ -13,12 +13,12 @@ Current execution board for maintenance work.
 
 ## Backlog candidates
 
-- [ ] Add changed-node highlight and optional 1-hop impact overlay.
 - [ ] Add integration tests for studio event flow and non-blocking refresh behavior.
 - [ ] Add optional cost/usage counters in turn trace output.
 
 ## Recently completed
 
+- [x] Added changed-node highlight with optional 1-hop impact overlay toggle and annotations in `studio` graph refresh flow (`src/studio/mod.rs`) with diff/overlay tests (2026-02-19).
 - [x] Implemented canvas operation reducer (`SetGraph`, `HighlightNodes`, `FocusNode`, `AddAnnotation`, `ClearAnnotations`) in `src/studio/canvas.rs`, wired into studio state updates with reducer tests (2026-02-19).
 - [x] Added debounced filesystem watcher and turn-completion-triggered graph refresh (`src/graph/watch.rs`), wired into `studio` canvas updates (2026-02-19).
 - [x] Implemented deterministic Rust file/module graph builder (`src/graph/mod.rs`) with stable node/edge contracts and deterministic ordering tests (2026-02-19).
