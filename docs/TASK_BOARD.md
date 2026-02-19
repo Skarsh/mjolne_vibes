@@ -13,6 +13,7 @@ Current execution board for maintenance work.
 ## Backlog candidates
 
 - [ ] Add optional cost/usage counters in turn trace output.
+- [ ] Add optional safe redirect-following for `fetch_url`, restricted to hosts in `FETCH_URL_ALLOWED_DOMAINS`.
 
 ## Recently completed
 
