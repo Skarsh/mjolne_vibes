@@ -12,8 +12,10 @@ use crate::agent::run_chat_turn;
 use crate::config::AgentSettings;
 use crate::graph::watch::{GraphRefreshUpdate, GraphWatchHandle, spawn_graph_watch_worker};
 
+pub mod canvas;
 pub mod events;
 
+use self::canvas::CanvasState;
 use self::events::{CanvasOp, StudioCommand, StudioEvent, StudioTurnResult};
 
 const APP_TITLE: &str = "mjolne_vibes studio";
@@ -86,8 +88,6 @@ fn spawn_runtime_worker(
                     match run_chat_turn(&settings, &message).await {
                         Ok(outcome) => {
                             let result = StudioTurnResult::from(outcome);
-                            let tool_call_count = result.trace.tool_calls;
-                            let assistant_preview = summarize_for_canvas(&result.final_text);
 
                             if event_tx
                                 .send(StudioEvent::TurnCompleted {
@@ -98,19 +98,6 @@ fn spawn_runtime_worker(
                             {
                                 break;
                             }
-
-                            let _ = event_tx.send(StudioEvent::CanvasUpdate {
-                                op: CanvasOp::AppendTurnSummary {
-                                    user_message: message,
-                                    assistant_preview,
-                                    tool_call_count,
-                                },
-                            });
-                            let _ = event_tx.send(StudioEvent::CanvasUpdate {
-                                op: CanvasOp::SetStatus {
-                                    message: "Idle".to_owned(),
-                                },
-                            });
                         }
                         Err(error) => {
                             let details = error.details();
@@ -123,11 +110,6 @@ fn spawn_runtime_worker(
                             {
                                 break;
                             }
-                            let _ = event_tx.send(StudioEvent::CanvasUpdate {
-                                op: CanvasOp::SetStatus {
-                                    message: format!("Turn failed: {details}"),
-                                },
-                            });
                         }
                     }
 
@@ -193,65 +175,6 @@ struct CanvasTurnSummary {
     tool_call_count: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CanvasState {
-    status: String,
-    graph_revision: Option<u64>,
-    graph_node_count: usize,
-    graph_edge_count: usize,
-    graph_last_trigger: Option<String>,
-    turn_summaries: Vec<CanvasTurnSummary>,
-}
-
-impl Default for CanvasState {
-    fn default() -> Self {
-        Self {
-            status: "Idle".to_owned(),
-            graph_revision: None,
-            graph_node_count: 0,
-            graph_edge_count: 0,
-            graph_last_trigger: None,
-            turn_summaries: Vec::new(),
-        }
-    }
-}
-
-impl CanvasState {
-    fn apply(&mut self, op: CanvasOp) {
-        match op {
-            CanvasOp::SetStatus { message } => {
-                self.status = message;
-            }
-            CanvasOp::SetGraphStats {
-                revision,
-                node_count,
-                edge_count,
-                trigger,
-            } => {
-                self.graph_revision = Some(revision);
-                self.graph_node_count = node_count;
-                self.graph_edge_count = edge_count;
-                self.graph_last_trigger = Some(trigger);
-            }
-            CanvasOp::AppendTurnSummary {
-                user_message,
-                assistant_preview,
-                tool_call_count,
-            } => {
-                self.turn_summaries.push(CanvasTurnSummary {
-                    user_message,
-                    assistant_preview,
-                    tool_call_count,
-                });
-                if self.turn_summaries.len() > MAX_CANVAS_SUMMARIES {
-                    let extra = self.turn_summaries.len() - MAX_CANVAS_SUMMARIES;
-                    self.turn_summaries.drain(0..extra);
-                }
-            }
-        }
-    }
-}
-
 struct StudioApp {
     settings: AgentSettings,
     workspace_root: PathBuf,
@@ -262,6 +185,9 @@ struct StudioApp {
     input_buffer: String,
     chat_history: Vec<ChatEntry>,
     canvas: CanvasState,
+    canvas_status: String,
+    graph_last_trigger: Option<String>,
+    turn_summaries: Vec<CanvasTurnSummary>,
     turn_in_flight: bool,
     runtime_disconnected: bool,
     graph_watch_disconnected: bool,
@@ -288,6 +214,9 @@ impl StudioApp {
                 "Studio ready. Send a prompt to run a chat turn.",
             )],
             canvas: CanvasState::default(),
+            canvas_status: "Idle".to_owned(),
+            graph_last_trigger: None,
+            turn_summaries: Vec::new(),
             turn_in_flight: false,
             runtime_disconnected: false,
             graph_watch_disconnected: false,
@@ -338,17 +267,13 @@ impl StudioApp {
         let node_count = update.graph.nodes.len();
         let edge_count = update.graph.edges.len();
         let trigger = update.trigger.label().to_owned();
-        self.canvas.apply(CanvasOp::SetGraphStats {
-            revision,
-            node_count,
-            edge_count,
-            trigger: trigger.clone(),
+        self.canvas.apply(CanvasOp::SetGraph {
+            graph: update.graph,
         });
-        self.canvas.apply(CanvasOp::SetStatus {
-            message: format!(
-                "Graph refreshed (rev {revision}, {node_count} nodes, {edge_count} edges, trigger: {trigger})"
-            ),
-        });
+        self.graph_last_trigger = Some(trigger.clone());
+        self.canvas_status = format!(
+            "Graph refreshed (rev {revision}, {node_count} nodes, {edge_count} edges, trigger: {trigger})"
+        );
     }
 
     fn apply_event(&mut self, event: StudioEvent) {
@@ -359,15 +284,16 @@ impl StudioApp {
             } => {
                 self.turn_in_flight = true;
                 let _ = started_at;
-                self.canvas.apply(CanvasOp::SetStatus {
-                    message: format!("Running turn for: {}", summarize_for_canvas(&message)),
-                });
+                self.canvas_status =
+                    format!("Running turn for: {}", summarize_for_canvas(&message));
             }
             StudioEvent::TurnCompleted { message, result } => {
-                let _ = message;
                 self.turn_in_flight = false;
+                let assistant_preview = summarize_for_canvas(&result.final_text);
+                self.record_turn_summary(message, assistant_preview, result.trace.tool_calls);
                 self.chat_history
                     .push(ChatEntry::assistant(result.final_text));
+                self.canvas_status = "Idle".to_owned();
             }
             StudioEvent::TurnFailed { message, error } => {
                 self.turn_in_flight = false;
@@ -375,8 +301,26 @@ impl StudioApp {
                     "Turn failed for `{}`: {error}",
                     summarize_for_canvas(&message)
                 )));
+                self.canvas_status = format!("Turn failed: {error}");
             }
             StudioEvent::CanvasUpdate { op } => self.canvas.apply(op),
+        }
+    }
+
+    fn record_turn_summary(
+        &mut self,
+        user_message: String,
+        assistant_preview: String,
+        tool_call_count: u32,
+    ) {
+        self.turn_summaries.push(CanvasTurnSummary {
+            user_message,
+            assistant_preview,
+            tool_call_count,
+        });
+        if self.turn_summaries.len() > MAX_CANVAS_SUMMARIES {
+            let extra = self.turn_summaries.len() - MAX_CANVAS_SUMMARIES;
+            self.turn_summaries.drain(0..extra);
         }
     }
 
@@ -389,9 +333,7 @@ impl StudioApp {
         self.input_buffer.clear();
         self.chat_history.push(ChatEntry::user(message.clone()));
         self.turn_in_flight = true;
-        self.canvas.apply(CanvasOp::SetStatus {
-            message: "Queued turn...".to_owned(),
-        });
+        self.canvas_status = "Queued turn...".to_owned();
 
         if let Err(error) = self
             .command_tx
@@ -399,6 +341,7 @@ impl StudioApp {
         {
             self.turn_in_flight = false;
             self.runtime_disconnected = true;
+            self.canvas_status = "Runtime disconnected".to_owned();
             self.chat_history.push(ChatEntry::system(format!(
                 "Failed to submit turn to runtime worker: {error}"
             )));
@@ -465,26 +408,46 @@ impl StudioApp {
 
     fn render_canvas_pane(&self, ui: &mut egui::Ui) {
         ui.heading("Canvas");
-        ui.label(format!("Status: {}", self.canvas.status));
-        if let Some(revision) = self.canvas.graph_revision {
+        ui.label(format!("Status: {}", self.canvas_status));
+        if let Some(graph) = self.canvas.graph() {
+            let revision = graph.revision;
+            let node_count = graph.nodes.len();
+            let edge_count = graph.edges.len();
             ui.label(format!("Graph revision: {revision}"));
-            ui.label(format!("Graph nodes: {}", self.canvas.graph_node_count));
-            ui.label(format!("Graph edges: {}", self.canvas.graph_edge_count));
-            if let Some(trigger) = &self.canvas.graph_last_trigger {
+            ui.label(format!("Graph nodes: {node_count}"));
+            ui.label(format!("Graph edges: {edge_count}"));
+            if let Some(trigger) = &self.graph_last_trigger {
                 ui.label(format!("Last graph trigger: {trigger}"));
             }
         } else {
             ui.label("Graph revision: pending initial refresh...");
         }
+        ui.label(format!(
+            "Highlighted nodes: {}",
+            self.canvas.highlighted_node_ids().len()
+        ));
+        if let Some(focused_node) = self.canvas.focused_node_id() {
+            ui.label(format!("Focused node: {focused_node}"));
+        } else {
+            ui.label("Focused node: none");
+        }
+        ui.label(format!("Annotations: {}", self.canvas.annotations().len()));
+        for annotation in self.canvas.annotations() {
+            if let Some(node_id) = &annotation.node_id {
+                ui.label(format!("- {} ({node_id})", annotation.text));
+            } else {
+                ui.label(format!("- {}", annotation.text));
+            }
+        }
         ui.separator();
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            if self.canvas.turn_summaries.is_empty() {
+            if self.turn_summaries.is_empty() {
                 ui.label("No turn summaries yet.");
                 return;
             }
 
-            for summary in self.canvas.turn_summaries.iter().rev() {
+            for summary in self.turn_summaries.iter().rev() {
                 ui.group(|ui| {
                     ui.label(egui::RichText::new("Turn").strong());
                     ui.label(format!("User: {}", summary.user_message));
@@ -536,7 +499,7 @@ fn summarize_for_canvas(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CanvasOp, CanvasState, summarize_for_canvas};
+    use super::summarize_for_canvas;
 
     #[test]
     fn summarize_for_canvas_truncates_long_text() {
@@ -544,38 +507,5 @@ mod tests {
         let summary = summarize_for_canvas(&long_text);
         assert_eq!(summary.chars().count(), 180);
         assert!(summary.ends_with('…'));
-    }
-
-    #[test]
-    fn canvas_state_tracks_latest_status_and_turns() {
-        let mut canvas = CanvasState::default();
-        canvas.apply(CanvasOp::SetStatus {
-            message: "Running".to_owned(),
-        });
-        canvas.apply(CanvasOp::AppendTurnSummary {
-            user_message: "hello".to_owned(),
-            assistant_preview: "world".to_owned(),
-            tool_call_count: 1,
-        });
-
-        assert_eq!(canvas.status, "Running");
-        assert_eq!(canvas.turn_summaries.len(), 1);
-        assert_eq!(canvas.turn_summaries[0].tool_call_count, 1);
-    }
-
-    #[test]
-    fn canvas_state_tracks_graph_refresh_stats() {
-        let mut canvas = CanvasState::default();
-        canvas.apply(CanvasOp::SetGraphStats {
-            revision: 3,
-            node_count: 12,
-            edge_count: 17,
-            trigger: "turn_completed".to_owned(),
-        });
-
-        assert_eq!(canvas.graph_revision, Some(3));
-        assert_eq!(canvas.graph_node_count, 12);
-        assert_eq!(canvas.graph_edge_count, 17);
-        assert_eq!(canvas.graph_last_trigger.as_deref(), Some("turn_completed"));
     }
 }

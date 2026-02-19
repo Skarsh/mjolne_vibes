@@ -1,6 +1,7 @@
 use std::time::SystemTime;
 
 use crate::agent::{ChatTurnOutcome, ExecutedToolCall, TurnTraceSummary};
+use crate::graph::ArchitectureGraph;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StudioCommand {
@@ -46,27 +47,29 @@ impl From<ChatTurnOutcome> for StudioTurnResult {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CanvasOp {
-    SetStatus {
-        message: String,
+    SetGraph {
+        graph: ArchitectureGraph,
     },
-    SetGraphStats {
-        revision: u64,
-        node_count: usize,
-        edge_count: usize,
-        trigger: String,
+    HighlightNodes {
+        node_ids: Vec<String>,
     },
-    AppendTurnSummary {
-        user_message: String,
-        assistant_preview: String,
-        tool_call_count: u32,
+    FocusNode {
+        node_id: Option<String>,
     },
+    AddAnnotation {
+        id: String,
+        text: String,
+        node_id: Option<String>,
+    },
+    ClearAnnotations,
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::time::{Duration, UNIX_EPOCH};
 
     use crate::agent::{ChatTurnOutcome, TurnTraceSummary};
+    use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
     use super::{CanvasOp, StudioTurnResult};
 
@@ -94,53 +97,89 @@ mod tests {
     }
 
     #[test]
-    fn canvas_append_turn_summary_tracks_preview_and_tool_count() {
-        let op = CanvasOp::AppendTurnSummary {
-            user_message: "summarize this".to_owned(),
-            assistant_preview: "summary text".to_owned(),
-            tool_call_count: 2,
+    fn canvas_set_graph_wraps_graph_payload() {
+        let graph = graph_with_nodes(7, &["module:crate", "module:crate::tools"]);
+        let op = CanvasOp::SetGraph {
+            graph: graph.clone(),
         };
 
         match op {
-            CanvasOp::AppendTurnSummary {
-                user_message,
-                assistant_preview,
-                tool_call_count,
-            } => {
-                assert_eq!(user_message, "summarize this");
-                assert_eq!(assistant_preview, "summary text");
-                assert_eq!(tool_call_count, 2);
+            CanvasOp::SetGraph { graph: actual } => {
+                assert_eq!(actual, graph);
             }
-            CanvasOp::SetStatus { .. } | CanvasOp::SetGraphStats { .. } => {
-                panic!("unexpected canvas op")
-            }
+            CanvasOp::HighlightNodes { .. }
+            | CanvasOp::FocusNode { .. }
+            | CanvasOp::AddAnnotation { .. }
+            | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
         }
     }
 
     #[test]
-    fn canvas_set_graph_stats_carries_revision_and_counts() {
-        let op = CanvasOp::SetGraphStats {
-            revision: 7,
-            node_count: 42,
-            edge_count: 99,
-            trigger: "turn_completed".to_owned(),
+    fn canvas_add_annotation_preserves_fields() {
+        let op = CanvasOp::AddAnnotation {
+            id: "todo-1".to_owned(),
+            text: "inspect parser module".to_owned(),
+            node_id: Some("module:crate::parser".to_owned()),
         };
 
         match op {
-            CanvasOp::SetGraphStats {
-                revision,
-                node_count,
-                edge_count,
-                trigger,
-            } => {
-                assert_eq!(revision, 7);
-                assert_eq!(node_count, 42);
-                assert_eq!(edge_count, 99);
-                assert_eq!(trigger, "turn_completed");
+            CanvasOp::AddAnnotation { id, text, node_id } => {
+                assert_eq!(id, "todo-1");
+                assert_eq!(text, "inspect parser module");
+                assert_eq!(node_id.as_deref(), Some("module:crate::parser"));
             }
-            CanvasOp::SetStatus { .. } | CanvasOp::AppendTurnSummary { .. } => {
-                panic!("unexpected canvas op")
+            CanvasOp::SetGraph { .. }
+            | CanvasOp::HighlightNodes { .. }
+            | CanvasOp::FocusNode { .. }
+            | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
+        }
+    }
+
+    #[test]
+    fn canvas_highlight_and_focus_include_node_ids() {
+        let highlight = CanvasOp::HighlightNodes {
+            node_ids: vec!["module:crate".to_owned(), "module:crate::tools".to_owned()],
+        };
+        let focus = CanvasOp::FocusNode {
+            node_id: Some("module:crate::tools".to_owned()),
+        };
+
+        match highlight {
+            CanvasOp::HighlightNodes { node_ids } => {
+                assert_eq!(node_ids, vec!["module:crate", "module:crate::tools"]);
             }
+            CanvasOp::SetGraph { .. }
+            | CanvasOp::FocusNode { .. }
+            | CanvasOp::AddAnnotation { .. }
+            | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
+        }
+
+        match focus {
+            CanvasOp::FocusNode { node_id } => {
+                assert_eq!(node_id.as_deref(), Some("module:crate::tools"));
+            }
+            CanvasOp::SetGraph { .. }
+            | CanvasOp::HighlightNodes { .. }
+            | CanvasOp::AddAnnotation { .. }
+            | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
+        }
+    }
+
+    fn graph_with_nodes(revision: u64, node_ids: &[&str]) -> ArchitectureGraph {
+        ArchitectureGraph {
+            nodes: node_ids.iter().copied().map(graph_node).collect(),
+            edges: Vec::new(),
+            revision,
+            generated_at: UNIX_EPOCH,
+        }
+    }
+
+    fn graph_node(node_id: &str) -> ArchitectureNode {
+        ArchitectureNode {
+            id: node_id.to_owned(),
+            display_label: node_id.to_owned(),
+            kind: ArchitectureNodeKind::Module,
+            path: None,
         }
     }
 }

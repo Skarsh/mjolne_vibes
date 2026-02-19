@@ -20,6 +20,7 @@ src/
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   server/mod.rs    # HTTP transport; delegates to agent loop
   studio/mod.rs    # native egui shell; chat pane + canvas pane
+  studio/canvas.rs # canvas state reducer for typed canvas operations
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
@@ -32,17 +33,11 @@ src/
   graph/mod.rs     # deterministic Rust file/module graph builder
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   studio/mod.rs    # native egui shell; chat pane + canvas pane
+  studio/canvas.rs # canvas state reducer for typed canvas operations
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
-Still planned:
-
-```text
-src/
-  studio/canvas.rs # canvas state reducer and rendering helpers
-```
-
-Planned contracts:
+Canvas operation contract:
 - `ArchitectureGraph`:
   - `nodes` (stable id + display label + kind + optional path)
   - `edges` (from, to, relation kind)

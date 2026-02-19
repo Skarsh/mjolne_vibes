@@ -9,7 +9,7 @@ Current execution board for maintenance work.
 
 ## Active tasks
 
-- [ ] Implement canvas operation reducer (`SetGraph`, `HighlightNodes`, `FocusNode`, `AddAnnotation`, `ClearAnnotations`).
+- (none)
 
 ## Backlog candidates
 
@@ -19,6 +19,7 @@ Current execution board for maintenance work.
 
 ## Recently completed
 
+- [x] Implemented canvas operation reducer (`SetGraph`, `HighlightNodes`, `FocusNode`, `AddAnnotation`, `ClearAnnotations`) in `src/studio/canvas.rs`, wired into studio state updates with reducer tests (2026-02-19).
 - [x] Added debounced filesystem watcher and turn-completion-triggered graph refresh (`src/graph/watch.rs`), wired into `studio` canvas updates (2026-02-19).
 - [x] Implemented deterministic Rust file/module graph builder (`src/graph/mod.rs`) with stable node/edge contracts and deterministic ordering tests (2026-02-19).
 - [x] Implemented native `studio` command shell with chat pane + canvas pane (`egui`) and wired `cargo run -- studio` CLI command (2026-02-19).
