@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -12,8 +12,8 @@ use crate::model::client::{
     ChatResponse, ModelClient, ModelMessage, ModelToolCall, ModelToolDefinition,
 };
 use crate::tools::{
-    FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME, ToolDispatchError,
-    ToolRuntimeConfig, dispatch_tool_call, tool_definitions,
+    FETCH_URL_TOOL_NAME, ToolDispatchError, ToolRuntimeConfig, dispatch_tool_call,
+    tool_definitions, tool_parameters_schema,
 };
 
 const SYSTEM_PROMPT: &str = "You are a concise, reliable Rust AI assistant. Be helpful, truthful, and use tools only when needed for the user's request. Follow the user's requested output format exactly. If they ask for a JSON object, return only a valid JSON object with no markdown fences or extra text. If they ask for markdown bullets, return only bullet lines starting with '- '.";
@@ -571,23 +571,10 @@ fn build_repl_tools_lines() -> Vec<String> {
     let mut lines = vec!["Available tools:".to_owned()];
 
     for tool in tool_definitions() {
-        lines.push(format!(
-            "- {}: {}",
-            tool_signature(tool.name),
-            tool_description(tool.name)
-        ));
+        lines.push(format!("- {}: {}", tool.signature, tool.description));
     }
 
     lines
-}
-
-fn tool_signature(tool_name: &str) -> &'static str {
-    match tool_name {
-        SEARCH_NOTES_TOOL_NAME => "search_notes(query: string, limit: u8)",
-        FETCH_URL_TOOL_NAME => "fetch_url(url: string)",
-        SAVE_NOTE_TOOL_NAME => "save_note(title: string, body: string)",
-        _ => "unknown()",
-    }
 }
 
 fn build_model_tool_definitions() -> Vec<ModelToolDefinition> {
@@ -595,7 +582,7 @@ fn build_model_tool_definitions() -> Vec<ModelToolDefinition> {
         .iter()
         .map(|tool| ModelToolDefinition {
             name: tool.name.to_owned(),
-            description: tool_description(tool.name).to_owned(),
+            description: tool.description.to_owned(),
             parameters: tool_parameters_schema(tool.name),
         })
         .collect()
@@ -862,51 +849,6 @@ fn classify_turn_error_kind(error: &anyhow::Error) -> ChatTurnErrorKind {
     }
 
     ChatTurnErrorKind::Internal
-}
-
-fn tool_description(tool_name: &str) -> &'static str {
-    match tool_name {
-        SEARCH_NOTES_TOOL_NAME => "Search local notes by text query.",
-        FETCH_URL_TOOL_NAME => "Fetch a URL and return extracted page content.",
-        SAVE_NOTE_TOOL_NAME => "Save a note with a title and body.",
-        _ => "Unknown tool.",
-    }
-}
-
-fn tool_parameters_schema(tool_name: &str) -> serde_json::Value {
-    match tool_name {
-        SEARCH_NOTES_TOOL_NAME => json!({
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "limit": {"type": "integer", "minimum": 0, "maximum": 255}
-            },
-            "required": ["query", "limit"],
-            "additionalProperties": false
-        }),
-        FETCH_URL_TOOL_NAME => json!({
-            "type": "object",
-            "properties": {
-                "url": {"type": "string"}
-            },
-            "required": ["url"],
-            "additionalProperties": false
-        }),
-        SAVE_NOTE_TOOL_NAME => json!({
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "body": {"type": "string"}
-            },
-            "required": ["title", "body"],
-            "additionalProperties": false
-        }),
-        _ => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": false
-        }),
-    }
 }
 
 #[cfg(test)]

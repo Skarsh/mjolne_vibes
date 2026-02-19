@@ -18,22 +18,66 @@ pub const SAVE_NOTE_TOOL_NAME: &str = "save_note";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct ToolDefinition {
     pub name: &'static str,
+    pub signature: &'static str,
+    pub description: &'static str,
 }
 
 const TOOL_DEFINITIONS: [ToolDefinition; 3] = [
     ToolDefinition {
         name: SEARCH_NOTES_TOOL_NAME,
+        signature: "search_notes(query: string, limit: u8)",
+        description: "Search local notes by text query.",
     },
     ToolDefinition {
         name: FETCH_URL_TOOL_NAME,
+        signature: "fetch_url(url: string)",
+        description: "Fetch a URL and return extracted page content.",
     },
     ToolDefinition {
         name: SAVE_NOTE_TOOL_NAME,
+        signature: "save_note(title: string, body: string)",
+        description: "Save a note with a title and body.",
     },
 ];
 
 pub fn tool_definitions() -> &'static [ToolDefinition] {
     &TOOL_DEFINITIONS
+}
+
+pub fn tool_parameters_schema(tool_name: &str) -> Value {
+    match tool_name {
+        SEARCH_NOTES_TOOL_NAME => json!({
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 0, "maximum": 255}
+            },
+            "required": ["query", "limit"],
+            "additionalProperties": false
+        }),
+        FETCH_URL_TOOL_NAME => json!({
+            "type": "object",
+            "properties": {
+                "url": {"type": "string"}
+            },
+            "required": ["url"],
+            "additionalProperties": false
+        }),
+        SAVE_NOTE_TOOL_NAME => json!({
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "body": {"type": "string"}
+            },
+            "required": ["title", "body"],
+            "additionalProperties": false
+        }),
+        _ => json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -812,7 +856,8 @@ mod tests {
 
     #[test]
     fn registry_contains_three_v1_tools() {
-        let names: Vec<_> = tool_definitions().iter().map(|tool| tool.name).collect();
+        let definitions = tool_definitions();
+        let names: Vec<_> = definitions.iter().map(|tool| tool.name).collect();
         assert_eq!(
             names,
             vec![
@@ -820,6 +865,28 @@ mod tests {
                 FETCH_URL_TOOL_NAME,
                 SAVE_NOTE_TOOL_NAME
             ]
+        );
+
+        assert_eq!(
+            definitions[0].signature,
+            "search_notes(query: string, limit: u8)"
+        );
+        assert_eq!(
+            definitions[0].description,
+            "Search local notes by text query."
+        );
+        assert_eq!(definitions[1].signature, "fetch_url(url: string)");
+        assert_eq!(
+            definitions[1].description,
+            "Fetch a URL and return extracted page content."
+        );
+        assert_eq!(
+            definitions[2].signature,
+            "save_note(title: string, body: string)"
+        );
+        assert_eq!(
+            definitions[2].description,
+            "Save a note with a title and body."
         );
     }
 
