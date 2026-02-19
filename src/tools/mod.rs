@@ -151,6 +151,35 @@ pub enum ToolDispatchError {
     ExecutionFailed { tool_name: String, reason: String },
 }
 
+impl ToolDispatchError {
+    fn unknown_tool(tool_name: &str) -> Self {
+        Self::UnknownTool {
+            tool_name: tool_name.to_owned(),
+        }
+    }
+
+    fn invalid_args(tool_name: &str, reason: impl Into<String>) -> Self {
+        Self::InvalidArgs {
+            tool_name: tool_name.to_owned(),
+            reason: reason.into(),
+        }
+    }
+
+    fn policy_violation(tool_name: &str, reason: impl Into<String>) -> Self {
+        Self::PolicyViolation {
+            tool_name: tool_name.to_owned(),
+            reason: reason.into(),
+        }
+    }
+
+    fn execution_failed(tool_name: &str, reason: impl Into<String>) -> Self {
+        Self::ExecutionFailed {
+            tool_name: tool_name.to_owned(),
+            reason: reason.into(),
+        }
+    }
+}
+
 pub async fn dispatch_tool_call(
     tool_name: &str,
     raw_args: Value,
@@ -176,9 +205,7 @@ pub async fn dispatch_tool_call(
             runtime.save_note_allow_overwrite,
         ),
         _ => {
-            return Err(ToolDispatchError::UnknownTool {
-                tool_name: tool_name.to_owned(),
-            });
+            return Err(ToolDispatchError::unknown_tool(tool_name));
         }
     }?;
 
@@ -192,10 +219,8 @@ fn parse_args<T: for<'de> Deserialize<'de>>(
     tool_name: &str,
     raw_args: Value,
 ) -> Result<T, ToolDispatchError> {
-    serde_json::from_value(raw_args).map_err(|error| ToolDispatchError::InvalidArgs {
-        tool_name: tool_name.to_owned(),
-        reason: error.to_string(),
-    })
+    serde_json::from_value(raw_args)
+        .map_err(|error| ToolDispatchError::invalid_args(tool_name, error.to_string()))
 }
 
 #[derive(Debug)]
@@ -209,10 +234,10 @@ struct SearchNoteMatch {
 fn run_search_notes(args: SearchNotesArgs, notes_dir: &Path) -> Result<Value, ToolDispatchError> {
     let query = args.query.trim();
     if query.is_empty() {
-        return Err(ToolDispatchError::InvalidArgs {
-            tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
-            reason: "query cannot be empty".to_owned(),
-        });
+        return Err(ToolDispatchError::invalid_args(
+            SEARCH_NOTES_TOOL_NAME,
+            "query cannot be empty",
+        ));
     }
 
     let limit = args.limit as usize;
@@ -229,9 +254,11 @@ fn run_search_notes(args: SearchNotesArgs, notes_dir: &Path) -> Result<Value, To
     let mut matches = Vec::new();
 
     for path in list_searchable_note_paths(notes_dir)? {
-        let raw = fs::read(&path).map_err(|error| ToolDispatchError::ExecutionFailed {
-            tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
-            reason: format!("failed to read note `{}`: {error}", path.display()),
+        let raw = fs::read(&path).map_err(|error| {
+            ToolDispatchError::execution_failed(
+                SEARCH_NOTES_TOOL_NAME,
+                format!("failed to read note `{}`: {error}", path.display()),
+            )
         })?;
         let content = String::from_utf8_lossy(&raw).to_string();
         let title = extract_note_title(&content, &path);
@@ -281,27 +308,32 @@ fn list_searchable_note_paths(notes_dir: &Path) -> Result<Vec<PathBuf>, ToolDisp
     }
 
     let mut paths = Vec::new();
-    let entries = fs::read_dir(notes_dir).map_err(|error| ToolDispatchError::ExecutionFailed {
-        tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
-        reason: format!(
-            "failed to read notes directory `{}`: {error}",
-            notes_dir.display()
-        ),
-    })?;
-    for entry in entries {
-        let entry = entry.map_err(|error| ToolDispatchError::ExecutionFailed {
-            tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
-            reason: format!(
-                "failed to list entry in notes directory `{}`: {error}",
+    let entries = fs::read_dir(notes_dir).map_err(|error| {
+        ToolDispatchError::execution_failed(
+            SEARCH_NOTES_TOOL_NAME,
+            format!(
+                "failed to read notes directory `{}`: {error}",
                 notes_dir.display()
             ),
+        )
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            ToolDispatchError::execution_failed(
+                SEARCH_NOTES_TOOL_NAME,
+                format!(
+                    "failed to list entry in notes directory `{}`: {error}",
+                    notes_dir.display()
+                ),
+            )
         })?;
         let path = entry.path();
-        let metadata =
-            fs::symlink_metadata(&path).map_err(|error| ToolDispatchError::ExecutionFailed {
-                tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
-                reason: format!("failed to inspect note path `{}`: {error}", path.display()),
-            })?;
+        let metadata = fs::symlink_metadata(&path).map_err(|error| {
+            ToolDispatchError::execution_failed(
+                SEARCH_NOTES_TOOL_NAME,
+                format!("failed to inspect note path `{}`: {error}", path.display()),
+            )
+        })?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             continue;
         }
@@ -433,32 +465,32 @@ where
     .await?;
 
     if !status_is_success(fetched.status_code) {
-        return Err(ToolDispatchError::ExecutionFailed {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!(
+        return Err(ToolDispatchError::execution_failed(
+            FETCH_URL_TOOL_NAME,
+            format!(
                 "received non-success HTTP status {} for `{}`",
                 fetched.status_code, args.url
             ),
-        });
+        ));
     }
 
     if let Some(value) = fetched.content_type.as_deref()
         && !content_type_allowed(value)
     {
-        return Err(ToolDispatchError::PolicyViolation {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("content type `{value}` is not allowed"),
-        });
+        return Err(ToolDispatchError::policy_violation(
+            FETCH_URL_TOOL_NAME,
+            format!("content type `{value}` is not allowed"),
+        ));
     }
 
     if fetched.body.len() > fetch_url_max_bytes {
-        return Err(ToolDispatchError::PolicyViolation {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!(
+        return Err(ToolDispatchError::policy_violation(
+            FETCH_URL_TOOL_NAME,
+            format!(
                 "response body exceeded FETCH_URL_MAX_BYTES limit: {} bytes (max {fetch_url_max_bytes})",
                 fetched.body.len()
             ),
-        });
+        ));
     }
 
     let content = String::from_utf8_lossy(&fetched.body).to_string();
@@ -484,12 +516,14 @@ async fn fetch_url_over_http(
         // Redirects are handled explicitly below so we can enforce allowlist policy per hop.
         .redirect(Policy::none())
         .build()
-        .map_err(|error| ToolDispatchError::ExecutionFailed {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!(
-                "failed to build HTTP client: {}",
-                describe_reqwest_error(&error)
-            ),
+        .map_err(|error| {
+            ToolDispatchError::execution_failed(
+                FETCH_URL_TOOL_NAME,
+                format!(
+                    "failed to build HTTP client: {}",
+                    describe_reqwest_error(&error)
+                ),
+            )
         })?;
 
     let mut current_url = parsed_url.clone();
@@ -499,22 +533,22 @@ async fn fetch_url_over_http(
             .get(current_url.clone())
             .send()
             .await
-            .map_err(|error| ToolDispatchError::ExecutionFailed {
-                tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-                reason: format!(
-                    "failed to fetch `{current_url}`: {}",
-                    describe_reqwest_error(&error)
-                ),
+            .map_err(|error| {
+                ToolDispatchError::execution_failed(
+                    FETCH_URL_TOOL_NAME,
+                    format!(
+                        "failed to fetch `{current_url}`: {}",
+                        describe_reqwest_error(&error)
+                    ),
+                )
             })?;
 
         if fetch_url_follow_redirects && response.status().is_redirection() {
             if redirects_followed >= 10 {
-                return Err(ToolDispatchError::ExecutionFailed {
-                    tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-                    reason: format!(
-                        "redirect chain exceeded maximum of 10 hops for `{parsed_url}`"
-                    ),
-                });
+                return Err(ToolDispatchError::execution_failed(
+                    FETCH_URL_TOOL_NAME,
+                    format!("redirect chain exceeded maximum of 10 hops for `{parsed_url}`"),
+                ));
             }
 
             current_url = resolve_redirect_target(
@@ -530,31 +564,28 @@ async fn fetch_url_over_http(
         let content_type = extract_content_type(response.headers())?;
         let mut body = Vec::new();
         let mut response = response;
-        while let Some(chunk) =
-            response
-                .chunk()
-                .await
-                .map_err(|error| ToolDispatchError::ExecutionFailed {
-                    tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-                    reason: format!(
-                        "failed to read response body from `{current_url}`: {}",
-                        describe_reqwest_error(&error)
-                    ),
-                })?
-        {
+        while let Some(chunk) = response.chunk().await.map_err(|error| {
+            ToolDispatchError::execution_failed(
+                FETCH_URL_TOOL_NAME,
+                format!(
+                    "failed to read response body from `{current_url}`: {}",
+                    describe_reqwest_error(&error)
+                ),
+            )
+        })? {
             let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
-                ToolDispatchError::ExecutionFailed {
-                    tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-                    reason: "response body length overflowed while reading".to_owned(),
-                }
+                ToolDispatchError::execution_failed(
+                    FETCH_URL_TOOL_NAME,
+                    "response body length overflowed while reading",
+                )
             })?;
             if next_len > fetch_url_max_bytes {
-                return Err(ToolDispatchError::PolicyViolation {
-                    tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-                    reason: format!(
+                return Err(ToolDispatchError::policy_violation(
+                    FETCH_URL_TOOL_NAME,
+                    format!(
                         "response body exceeded FETCH_URL_MAX_BYTES limit: {next_len} bytes (max {fetch_url_max_bytes})"
                     ),
-                });
+                ));
             }
             body.extend_from_slice(&chunk);
         }
@@ -626,31 +657,33 @@ fn parse_fetch_url(
     url: &str,
     fetch_url_allowed_domains: &[String],
 ) -> Result<Url, ToolDispatchError> {
-    let parsed = Url::parse(url).map_err(|error| ToolDispatchError::InvalidArgs {
-        tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-        reason: format!("invalid url `{url}`: {error}"),
+    let parsed = Url::parse(url).map_err(|error| {
+        ToolDispatchError::invalid_args(
+            FETCH_URL_TOOL_NAME,
+            format!("invalid url `{url}`: {error}"),
+        )
     })?;
 
-    let host = parsed
-        .host_str()
-        .ok_or_else(|| ToolDispatchError::InvalidArgs {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("url `{url}` must include a host"),
-        })?;
+    let host = parsed.host_str().ok_or_else(|| {
+        ToolDispatchError::invalid_args(
+            FETCH_URL_TOOL_NAME,
+            format!("url `{url}` must include a host"),
+        )
+    })?;
 
     if parsed.scheme() != "http" && parsed.scheme() != "https" {
-        return Err(ToolDispatchError::PolicyViolation {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("url scheme `{}` is not allowed", parsed.scheme()),
-        });
+        return Err(ToolDispatchError::policy_violation(
+            FETCH_URL_TOOL_NAME,
+            format!("url scheme `{}` is not allowed", parsed.scheme()),
+        ));
     }
 
     let host = host.to_ascii_lowercase();
     if !host_allowed(&host, fetch_url_allowed_domains) {
-        return Err(ToolDispatchError::PolicyViolation {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("url host `{host}` is not in allowlist"),
-        });
+        return Err(ToolDispatchError::policy_violation(
+            FETCH_URL_TOOL_NAME,
+            format!("url host `{host}` is not in allowlist"),
+        ));
     }
 
     Ok(parsed)
@@ -663,51 +696,54 @@ fn resolve_redirect_target(
 ) -> Result<Url, ToolDispatchError> {
     let location = headers
         .get(LOCATION)
-        .ok_or_else(|| ToolDispatchError::ExecutionFailed {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("received redirect response without Location header for `{current_url}`"),
+        .ok_or_else(|| {
+            ToolDispatchError::execution_failed(
+                FETCH_URL_TOOL_NAME,
+                format!("received redirect response without Location header for `{current_url}`"),
+            )
         })?
         .to_str()
-        .map_err(|error| ToolDispatchError::ExecutionFailed {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!(
-                "received redirect response with invalid Location header for `{current_url}`: {error}"
-            ),
+        .map_err(|error| {
+            ToolDispatchError::execution_failed(
+                FETCH_URL_TOOL_NAME,
+                format!(
+                    "received redirect response with invalid Location header for `{current_url}`: {error}"
+                ),
+            )
         })?;
 
-    let target =
-        current_url
-            .join(location)
-            .map_err(|error| ToolDispatchError::ExecutionFailed {
-                tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-                reason: format!(
-                    "failed to resolve redirect target `{location}` from `{current_url}`: {error}"
-                ),
-            })?;
+    let target = current_url.join(location).map_err(|error| {
+        ToolDispatchError::execution_failed(
+            FETCH_URL_TOOL_NAME,
+            format!("failed to resolve redirect target `{location}` from `{current_url}`: {error}"),
+        )
+    })?;
 
     if target.scheme() != "http" && target.scheme() != "https" {
-        return Err(ToolDispatchError::PolicyViolation {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!(
+        return Err(ToolDispatchError::policy_violation(
+            FETCH_URL_TOOL_NAME,
+            format!(
                 "redirect target scheme `{}` is not allowed",
                 target.scheme()
             ),
-        });
+        ));
     }
 
     let host = target
         .host_str()
-        .ok_or_else(|| ToolDispatchError::PolicyViolation {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("redirect target `{target}` must include a host"),
+        .ok_or_else(|| {
+            ToolDispatchError::policy_violation(
+                FETCH_URL_TOOL_NAME,
+                format!("redirect target `{target}` must include a host"),
+            )
         })?
         .to_ascii_lowercase();
 
     if !host_allowed(&host, fetch_url_allowed_domains) {
-        return Err(ToolDispatchError::PolicyViolation {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("redirect target host `{host}` is not in allowlist"),
-        });
+        return Err(ToolDispatchError::policy_violation(
+            FETCH_URL_TOOL_NAME,
+            format!("redirect target host `{host}` is not in allowlist"),
+        ));
     }
 
     Ok(target)
@@ -718,12 +754,12 @@ fn extract_content_type(headers: &HeaderMap) -> Result<Option<String>, ToolDispa
         return Ok(None);
     };
 
-    let raw = value
-        .to_str()
-        .map_err(|error| ToolDispatchError::PolicyViolation {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!("invalid response content type header: {error}"),
-        })?;
+    let raw = value.to_str().map_err(|error| {
+        ToolDispatchError::policy_violation(
+            FETCH_URL_TOOL_NAME,
+            format!("invalid response content type header: {error}"),
+        )
+    })?;
 
     let normalized = raw
         .split(';')
@@ -760,22 +796,26 @@ fn run_save_note(
 ) -> Result<Value, ToolDispatchError> {
     let title = args.title.trim();
     if title.is_empty() {
-        return Err(ToolDispatchError::InvalidArgs {
-            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-            reason: "title cannot be empty".to_owned(),
-        });
+        return Err(ToolDispatchError::invalid_args(
+            SAVE_NOTE_TOOL_NAME,
+            "title cannot be empty",
+        ));
     }
 
-    let note_slug = normalize_note_title(title).ok_or_else(|| ToolDispatchError::InvalidArgs {
-        tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-        reason: "title must include at least one alphanumeric character".to_owned(),
+    let note_slug = normalize_note_title(title).ok_or_else(|| {
+        ToolDispatchError::invalid_args(
+            SAVE_NOTE_TOOL_NAME,
+            "title must include at least one alphanumeric character",
+        )
     })?;
-    fs::create_dir_all(notes_dir).map_err(|error| ToolDispatchError::ExecutionFailed {
-        tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-        reason: format!(
-            "failed to create notes directory `{}`: {error}",
-            notes_dir.display()
-        ),
+    fs::create_dir_all(notes_dir).map_err(|error| {
+        ToolDispatchError::execution_failed(
+            SAVE_NOTE_TOOL_NAME,
+            format!(
+                "failed to create notes directory `{}`: {error}",
+                notes_dir.display()
+            ),
+        )
     })?;
 
     let note_filename = format!("{note_slug}.md");
@@ -786,79 +826,82 @@ fn run_save_note(
             ErrorKind::NotFound => Ok(None),
             _ => Err(error),
         });
-    let existing_metadata =
-        existing_metadata.map_err(|error| ToolDispatchError::ExecutionFailed {
-            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-            reason: format!(
+    let existing_metadata = existing_metadata.map_err(|error| {
+        ToolDispatchError::execution_failed(
+            SAVE_NOTE_TOOL_NAME,
+            format!(
                 "failed to inspect existing note `{}`: {error}",
                 note_path.display()
             ),
-        })?;
+        )
+    })?;
 
     if let Some(metadata) = existing_metadata.as_ref() {
         if metadata.file_type().is_symlink() {
-            return Err(ToolDispatchError::PolicyViolation {
-                tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-                reason: format!(
+            return Err(ToolDispatchError::policy_violation(
+                SAVE_NOTE_TOOL_NAME,
+                format!(
                     "refusing to write note `{}` because target is a symlink",
                     note_path.display()
                 ),
-            });
+            ));
         }
 
         if !metadata.is_file() {
-            return Err(ToolDispatchError::PolicyViolation {
-                tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-                reason: format!(
+            return Err(ToolDispatchError::policy_violation(
+                SAVE_NOTE_TOOL_NAME,
+                format!(
                     "refusing to overwrite non-file note path `{}`",
                     note_path.display()
                 ),
-            });
+            ));
         }
 
         if !save_note_allow_overwrite {
-            return Err(ToolDispatchError::PolicyViolation {
-                tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-                reason: format!(
+            return Err(ToolDispatchError::policy_violation(
+                SAVE_NOTE_TOOL_NAME,
+                format!(
                     "refusing to overwrite existing note `{}` without confirmation; set SAVE_NOTE_ALLOW_OVERWRITE=true to confirm overwrite",
                     note_path.display()
                 ),
-            });
+            ));
         }
     }
 
     let file_content = format!("# {title}\n\n{}\n", args.body);
     let temp_path = create_temp_note_path(notes_dir, &note_slug);
     write_new_file(&temp_path, &file_content).map_err(|error| {
-        ToolDispatchError::ExecutionFailed {
-            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-            reason: format!(
+        ToolDispatchError::execution_failed(
+            SAVE_NOTE_TOOL_NAME,
+            format!(
                 "failed to write temp note file `{}`: {error}",
                 temp_path.display()
             ),
-        }
+        )
     })?;
 
     if existing_metadata.is_some() {
-        fs::remove_file(&note_path).map_err(|error| ToolDispatchError::ExecutionFailed {
-            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-            reason: format!(
-                "failed to remove existing note `{}` before overwrite: {error}",
-                note_path.display()
-            ),
+        fs::remove_file(&note_path).map_err(|error| {
+            ToolDispatchError::execution_failed(
+                SAVE_NOTE_TOOL_NAME,
+                format!(
+                    "failed to remove existing note `{}` before overwrite: {error}",
+                    note_path.display()
+                ),
+            )
         })?;
     }
 
     fs::rename(&temp_path, &note_path).map_err(|error| {
         let _ = fs::remove_file(&temp_path);
-        ToolDispatchError::ExecutionFailed {
-            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-            reason: format!(
+        ToolDispatchError::execution_failed(
+            SAVE_NOTE_TOOL_NAME,
+            format!(
                 "failed to move temp note `{}` into `{}`: {error}",
                 temp_path.display(),
                 note_path.display()
             ),
-        }
+        )
     })?;
 
     Ok(json!({

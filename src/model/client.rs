@@ -449,50 +449,74 @@ fn parse_tool_arguments(raw: Value, field: &str) -> Result<Value, ModelClientErr
     }
 }
 
-fn parse_openai_tool_calls(
-    raw_calls: Vec<OpenAiToolCallResponse>,
-) -> Result<Vec<ModelToolCall>, ModelClientError> {
+fn parse_provider_tool_calls<T, F>(
+    raw_calls: Vec<T>,
+    arguments_field: &'static str,
+    default_id_prefix: &'static str,
+    mut extract_parts: F,
+) -> Result<Vec<ModelToolCall>, ModelClientError>
+where
+    F: FnMut(T) -> (Option<String>, String, Value),
+{
     raw_calls
         .into_iter()
         .enumerate()
         .map(|(index, call)| {
-            let arguments = parse_tool_arguments(
-                call.function.arguments,
-                "choices[0].message.tool_calls[].function.arguments",
-            )?;
+            let (id, name, raw_arguments) = extract_parts(call);
+            let arguments = parse_tool_arguments(raw_arguments, arguments_field)?;
 
             Ok(ModelToolCall {
-                id: call
-                    .id
-                    .unwrap_or_else(|| format!("openai-tool-call-{}", index + 1)),
-                name: call.function.name,
+                id: id.unwrap_or_else(|| format!("{default_id_prefix}{}", index + 1)),
+                name,
                 arguments,
             })
         })
         .collect()
 }
 
+fn parse_openai_tool_calls(
+    raw_calls: Vec<OpenAiToolCallResponse>,
+) -> Result<Vec<ModelToolCall>, ModelClientError> {
+    parse_provider_tool_calls(
+        raw_calls,
+        "choices[0].message.tool_calls[].function.arguments",
+        "openai-tool-call-",
+        |call| (call.id, call.function.name, call.function.arguments),
+    )
+}
+
 fn parse_ollama_tool_calls(
     raw_calls: Vec<OllamaToolCallResponse>,
 ) -> Result<Vec<ModelToolCall>, ModelClientError> {
-    raw_calls
-        .into_iter()
-        .enumerate()
-        .map(|(index, call)| {
-            let arguments = parse_tool_arguments(
-                call.function.arguments,
-                "message.tool_calls[].function.arguments",
-            )?;
+    parse_provider_tool_calls(
+        raw_calls,
+        "message.tool_calls[].function.arguments",
+        "ollama-tool-call-",
+        |call| (call.id, call.function.name, call.function.arguments),
+    )
+}
 
-            Ok(ModelToolCall {
-                id: call
-                    .id
-                    .unwrap_or_else(|| format!("ollama-tool-call-{}", index + 1)),
-                name: call.function.name,
-                arguments,
-            })
-        })
-        .collect()
+#[derive(Debug)]
+struct ProviderRequestBase<M, T> {
+    model: String,
+    messages: Vec<M>,
+    tools: Vec<T>,
+}
+
+fn build_provider_request_base<M, T, FM, FT>(
+    request: &ChatRequest,
+    map_message: FM,
+    map_tool: FT,
+) -> ProviderRequestBase<M, T>
+where
+    FM: Fn(&ModelMessage) -> M,
+    FT: Fn(&ModelToolDefinition) -> T,
+{
+    ProviderRequestBase {
+        model: request.model.clone(),
+        messages: request.messages.iter().map(map_message).collect(),
+        tools: request.tools.iter().map(map_tool).collect(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -594,14 +618,15 @@ struct OpenAiChatRequest {
 
 impl OpenAiChatRequest {
     fn from_common_request(request: &ChatRequest) -> Self {
+        let base = build_provider_request_base(
+            request,
+            |message| OpenAiMessage::from(message),
+            |tool| OpenAiToolDefinition::from(tool),
+        );
         Self {
-            model: request.model.clone(),
-            messages: request.messages.iter().map(OpenAiMessage::from).collect(),
-            tools: request
-                .tools
-                .iter()
-                .map(OpenAiToolDefinition::from)
-                .collect(),
+            model: base.model,
+            messages: base.messages,
+            tools: base.tools,
         }
     }
 }
@@ -722,15 +747,16 @@ struct OllamaChatRequest {
 
 impl OllamaChatRequest {
     fn from_common_request(request: &ChatRequest) -> Self {
+        let base = build_provider_request_base(
+            request,
+            |message| OllamaMessage::from(message),
+            |tool| OllamaToolDefinition::from(tool),
+        );
         Self {
-            model: request.model.clone(),
+            model: base.model,
             stream: false,
-            messages: request.messages.iter().map(OllamaMessage::from).collect(),
-            tools: request
-                .tools
-                .iter()
-                .map(OllamaToolDefinition::from)
-                .collect(),
+            messages: base.messages,
+            tools: base.tools,
         }
     }
 }
@@ -859,6 +885,99 @@ mod tests {
 
         let message = error.to_string();
         assert!(message.contains("failed to parse field"));
+    }
+
+    #[test]
+    fn parse_openai_tool_calls_parses_arguments_and_assigns_default_ids() {
+        let calls = parse_openai_tool_calls(vec![
+            OpenAiToolCallResponse {
+                id: None,
+                function: OpenAiToolCallFunctionResponse {
+                    name: "search_notes".to_owned(),
+                    arguments: Value::String("{\"query\":\"rust\",\"limit\":2}".to_owned()),
+                },
+            },
+            OpenAiToolCallResponse {
+                id: Some("explicit-openai-id".to_owned()),
+                function: OpenAiToolCallFunctionResponse {
+                    name: "fetch_url".to_owned(),
+                    arguments: json!({"url": "https://example.com"}),
+                },
+            },
+        ])
+        .expect("openai tool calls should parse");
+
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id, "openai-tool-call-1");
+        assert_eq!(calls[0].name, "search_notes");
+        assert_eq!(calls[0].arguments, json!({"query": "rust", "limit": 2}));
+        assert_eq!(calls[1].id, "explicit-openai-id");
+        assert_eq!(calls[1].name, "fetch_url");
+        assert_eq!(calls[1].arguments, json!({"url": "https://example.com"}));
+    }
+
+    #[test]
+    fn parse_openai_tool_calls_rejects_invalid_argument_json_string() {
+        let error = parse_openai_tool_calls(vec![OpenAiToolCallResponse {
+            id: None,
+            function: OpenAiToolCallFunctionResponse {
+                name: "search_notes".to_owned(),
+                arguments: Value::String("not-json".to_owned()),
+            },
+        }])
+        .expect_err("invalid openai tool call arguments should fail");
+
+        let message = error.to_string();
+        assert!(message.contains("choices[0].message.tool_calls[].function.arguments"));
+    }
+
+    #[test]
+    fn parse_ollama_tool_calls_parses_arguments_and_assigns_default_ids() {
+        let calls = parse_ollama_tool_calls(vec![
+            OllamaToolCallResponse {
+                id: None,
+                function: OllamaToolCallFunctionResponse {
+                    name: "save_note".to_owned(),
+                    arguments: Value::String(
+                        "{\"title\":\"T\",\"body\":\"from ollama\"}".to_owned(),
+                    ),
+                },
+            },
+            OllamaToolCallResponse {
+                id: Some("explicit-ollama-id".to_owned()),
+                function: OllamaToolCallFunctionResponse {
+                    name: "search_notes".to_owned(),
+                    arguments: json!({"query": "tokio", "limit": 1}),
+                },
+            },
+        ])
+        .expect("ollama tool calls should parse");
+
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].id, "ollama-tool-call-1");
+        assert_eq!(calls[0].name, "save_note");
+        assert_eq!(
+            calls[0].arguments,
+            json!({"title": "T", "body": "from ollama"})
+        );
+        assert_eq!(calls[1].id, "explicit-ollama-id");
+        assert_eq!(calls[1].name, "search_notes");
+        assert_eq!(calls[1].arguments, json!({"query": "tokio", "limit": 1}));
+    }
+
+    #[test]
+    fn parse_ollama_tool_calls_rejects_invalid_argument_json_string() {
+        let error = parse_ollama_tool_calls(vec![OllamaToolCallResponse {
+            id: None,
+            function: OllamaToolCallFunctionResponse {
+                name: "save_note".to_owned(),
+                arguments: Value::String("not-json".to_owned()),
+            },
+        }])
+        .expect_err("invalid ollama tool call arguments should fail");
+
+        let message = error.to_string();
+        assert!(message.contains("message.tool_calls[].function.arguments"));
     }
 
     #[test]

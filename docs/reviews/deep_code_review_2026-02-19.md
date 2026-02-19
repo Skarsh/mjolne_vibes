@@ -29,6 +29,22 @@ All quality gates passed during review:
 - `cargo clippy --all-targets --all-features -- -D warnings`
 - `cargo test --all-targets --all-features`
 
+## Execution Status Update (2026-02-19)
+
+This section tracks what was implemented after this review was written.
+
+- [x] Finding 1 completed: replaced string-based HTTP error classification with typed turn error kinds.
+- [x] Finding 2 completed: centralized tool metadata and removed duplicated agent definitions.
+- [x] Finding 3 completed: unified answer-format validation logic across runtime and eval.
+- [x] Finding 4 completed: deduplicated provider conversion/parsing internals in `src/model/client.rs` and added focused adapter parsing tests.
+- [x] Finding 5 completed: consolidated repeated runtime settings logging blocks in `src/agent/mod.rs` via shared helper.
+- [x] Finding 6 completed: added helper constructors for `ToolDispatchError` and applied them across runtime tool paths in `src/tools/mod.rs`.
+- [ ] Finding 7 open: duplicated test setup helpers.
+- [ ] Finding 8 open: strengthen tool metadata contract test assertions.
+
+Status source: `docs/TASK_BOARD.md` recently completed items and current code in `src/`.
+Note: line references in the findings below are snapshot references from review time and may drift.
+
 ## Findings (Prioritized)
 
 ### 1. High: HTTP status classification depends on string matching
@@ -157,6 +173,14 @@ Recommendation:
 1. Consolidate repeated logging helpers.
 2. Consolidate test setup helpers.
 3. Add error-constructor helpers in tools module.
+
+## Follow-up Checklist (Open)
+
+- [x] Finding 4: Deduplicate provider conversion/parsing internals and add focused adapter tests.
+- [x] Finding 5: Consolidate repeated runtime settings logs into a shared helper.
+- [x] Finding 6: Add helper constructors for `ToolDispatchError` and apply them in tools paths.
+- [ ] Finding 7: Extract shared test utility helpers for temp paths and environment setup.
+- [ ] Finding 8: Expand contract tests for tool metadata beyond `additionalProperties = false`.
 
 ## Guardrails for Implementation
 

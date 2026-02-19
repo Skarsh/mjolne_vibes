@@ -12,6 +12,8 @@ Current execution board for maintenance work.
 
 ## Backlog candidates
 
+- [ ] Extract shared test setup utilities for temp paths and common env setup (review finding 7).
+- [ ] Expand tool metadata contract assertions beyond `additionalProperties = false` (review finding 8).
 - [ ] Add optional cost/usage counters in turn trace output.
 
 ## Recently completed
@@ -23,6 +25,9 @@ Current execution board for maintenance work.
 - [x] Replaced HTTP substring-based error classification with typed turn error kinds to preserve status mapping robustness (2026-02-19).
 - [x] Centralized tool metadata (signature/description/schema) in `tools` and removed duplicated agent definitions (2026-02-19).
 - [x] Unified answer-format validation logic across runtime and eval via shared module (2026-02-19).
+- [x] Deduplicated provider tool-call parsing/request conversion internals in `src/model/client.rs` and added focused adapter parsing tests (2026-02-19).
+- [x] Consolidated repeated runtime settings logging blocks in `src/agent/mod.rs` via shared helper (2026-02-19).
+- [x] Added and adopted `ToolDispatchError` constructor helpers in `src/tools/mod.rs` to reduce repetitive error construction (2026-02-19).
 - [x] Added optional safe redirect-following for `fetch_url`, restricted to allowlisted hosts (`FETCH_URL_FOLLOW_REDIRECTS`) (2026-02-19).
 
 ## Board rules

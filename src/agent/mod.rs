@@ -125,7 +125,7 @@ impl TurnTraceSummary {
     }
 }
 
-pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
+fn log_runtime_settings(settings: &AgentSettings, event_name: &str) {
     info!(
         provider = %settings.model_provider,
         model = %settings.model,
@@ -141,8 +141,12 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
         save_note_allow_overwrite = settings.save_note_allow_overwrite,
         tool_timeout_ms = settings.tool_timeout_ms,
         fetch_url_follow_redirects = settings.fetch_url_follow_redirects,
-        "executing one-shot chat turn"
+        "{event_name}"
     );
+}
+
+pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
+    log_runtime_settings(settings, "executing one-shot chat turn");
 
     let mut session = ChatSession::new(settings);
     let outcome = session
@@ -154,23 +158,7 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
 }
 
 pub async fn run_chat_json(settings: &AgentSettings, message: &str) -> Result<()> {
-    info!(
-        provider = %settings.model_provider,
-        model = %settings.model,
-        model_timeout_ms = settings.model_timeout_ms,
-        model_max_retries = settings.model_max_retries,
-        max_steps = settings.max_steps,
-        max_tool_calls = settings.max_tool_calls,
-        max_tool_calls_per_step = settings.max_tool_calls_per_step,
-        max_consecutive_tool_steps = settings.max_consecutive_tool_steps,
-        max_input_chars = settings.max_input_chars,
-        max_output_chars = settings.max_output_chars,
-        notes_dir = %settings.notes_dir,
-        save_note_allow_overwrite = settings.save_note_allow_overwrite,
-        tool_timeout_ms = settings.tool_timeout_ms,
-        fetch_url_follow_redirects = settings.fetch_url_follow_redirects,
-        "executing one-shot chat turn with json output"
-    );
+    log_runtime_settings(settings, "executing one-shot chat turn with json output");
 
     let mut session = ChatSession::new(settings);
     let outcome = session
@@ -195,23 +183,7 @@ pub async fn run_chat_turn(
 }
 
 pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
-    info!(
-        provider = %settings.model_provider,
-        model = %settings.model,
-        model_timeout_ms = settings.model_timeout_ms,
-        model_max_retries = settings.model_max_retries,
-        max_steps = settings.max_steps,
-        max_tool_calls = settings.max_tool_calls,
-        max_tool_calls_per_step = settings.max_tool_calls_per_step,
-        max_consecutive_tool_steps = settings.max_consecutive_tool_steps,
-        max_input_chars = settings.max_input_chars,
-        max_output_chars = settings.max_output_chars,
-        notes_dir = %settings.notes_dir,
-        save_note_allow_overwrite = settings.save_note_allow_overwrite,
-        tool_timeout_ms = settings.tool_timeout_ms,
-        fetch_url_follow_redirects = settings.fetch_url_follow_redirects,
-        "starting interactive repl session"
-    );
+    log_runtime_settings(settings, "starting interactive repl session");
 
     println!("Interactive mode started. Type /help for commands.");
     let mut session = ChatSession::new(settings);
