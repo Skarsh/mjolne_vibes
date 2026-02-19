@@ -12,11 +12,11 @@ Current execution board for maintenance work.
 
 ## Backlog candidates
 
-- [ ] Expand tool metadata contract assertions beyond `additionalProperties = false` (review finding 8).
 - [ ] Add optional cost/usage counters in turn trace output.
 
 ## Recently completed
 
+- [x] Expanded tool metadata contract assertions to validate v1 tool names, descriptions, and full parameter schemas (review finding 8) (2026-02-19).
 - [x] v1 phases 0-5 completed (see `docs/legacy/2026-02/ROADMAP.md` for full history).
 - [x] Documentation consolidation and archival into `docs/legacy/2026-02/` (2026-02-19).
 - [x] Added transport parity integration tests for CLI/HTTP guardrail + upstream error behavior (2026-02-19).

@@ -828,6 +828,7 @@ mod tests {
     use std::time::Duration;
 
     use anyhow::anyhow;
+    use serde_json::json;
 
     use super::{
         ChatTurnErrorKind, RequestedAnswerFormat, TurnErrorCategory,
@@ -847,24 +848,54 @@ mod tests {
     fn model_tool_definitions_match_v1_contract() {
         let defs = build_model_tool_definitions();
 
-        let names: Vec<_> = defs.iter().map(|def| def.name.as_str()).collect();
+        assert_eq!(defs.len(), 3);
+
+        assert_eq!(defs[0].name, SEARCH_NOTES_TOOL_NAME);
+        assert_eq!(defs[0].description, "Search local notes by text query.");
         assert_eq!(
-            names,
-            vec![
-                SEARCH_NOTES_TOOL_NAME,
-                FETCH_URL_TOOL_NAME,
-                SAVE_NOTE_TOOL_NAME
-            ]
+            defs[0].parameters,
+            json!({
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 0, "maximum": 255}
+                },
+                "required": ["query", "limit"],
+                "additionalProperties": false
+            })
         );
 
-        for def in defs {
-            assert!(
-                def.parameters
-                    .get("additionalProperties")
-                    .and_then(|v| v.as_bool())
-                    == Some(false)
-            );
-        }
+        assert_eq!(defs[1].name, FETCH_URL_TOOL_NAME);
+        assert_eq!(
+            defs[1].description,
+            "Fetch a URL and return extracted page content."
+        );
+        assert_eq!(
+            defs[1].parameters,
+            json!({
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string"}
+                },
+                "required": ["url"],
+                "additionalProperties": false
+            })
+        );
+
+        assert_eq!(defs[2].name, SAVE_NOTE_TOOL_NAME);
+        assert_eq!(defs[2].description, "Save a note with a title and body.");
+        assert_eq!(
+            defs[2].parameters,
+            json!({
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "body": {"type": "string"}
+                },
+                "required": ["title", "body"],
+                "additionalProperties": false
+            })
+        );
     }
 
     #[test]

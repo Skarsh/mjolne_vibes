@@ -180,7 +180,7 @@ Recommendation:
 - [x] Finding 5: Consolidate repeated runtime settings logs into a shared helper.
 - [x] Finding 6: Add helper constructors for `ToolDispatchError` and apply them in tools paths.
 - [x] Finding 7: Extract shared test utility helpers for temp paths and environment setup.
-- [ ] Finding 8: Expand contract tests for tool metadata beyond `additionalProperties = false`.
+- [x] Finding 8: Expand contract tests for tool metadata beyond `additionalProperties = false`.
 
 ## Guardrails for Implementation
 
