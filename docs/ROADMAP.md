@@ -4,7 +4,7 @@ Execution roadmap for v1. This is the working implementation sequence.
 
 ## Current phase
 
-- Active phase: `Phase 4 - Observability + Evaluations`
+- Active phase: `Phase 5 - Packaging + Next Step`
 
 ## Phase 0: Skeleton + Config
 
@@ -126,7 +126,7 @@ Acceptance criteria:
 
 Status:
 
-- [ ] In progress
+- [x] Completed (2026-02-19)
 
 Implementation notes:
 
@@ -154,7 +154,13 @@ Acceptance criteria:
 
 Status:
 
-- [ ] Not started
+- [ ] In progress
+
+Implementation notes:
+
+- `--json` output mode is implemented for one-shot CLI chat via `cargo run -- chat "..." --json`, emitting structured final text + trace + tool call details from the shared agent loop (2026-02-19).
+- Optional HTTP endpoint is implemented using `axum` as `cargo run -- serve --bind 127.0.0.1:8080`, exposing `GET /health` and `POST /chat` while reusing the same one-turn agent loop path as CLI/eval (`run_chat_turn`) (2026-02-19).
+- Runbook and safety docs were updated for the new interfaces and transport behavior (2026-02-19).
 
 ## Notes
 

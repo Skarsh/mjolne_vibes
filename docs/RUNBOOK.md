@@ -175,6 +175,12 @@ pre-commit run --all-files --hook-stage pre-push
 cargo run -- chat "hello"
 ```
 
+One-shot JSON output mode:
+
+```bash
+cargo run -- chat "hello" --json
+```
+
 Interactive multi-turn mode:
 
 ```bash
@@ -199,6 +205,26 @@ Evaluation harness (custom cases path):
 
 ```bash
 cargo run -- eval --cases path/to/cases.yaml
+```
+
+Optional HTTP mode:
+
+```bash
+cargo run -- serve --bind 127.0.0.1:8080
+```
+
+HTTP health check:
+
+```bash
+curl -sS http://127.0.0.1:8080/health
+```
+
+HTTP chat request:
+
+```bash
+curl -sS http://127.0.0.1:8080/chat \
+  -H 'content-type: application/json' \
+  -d '{"message":"hello"}'
 ```
 
 REPL commands:

@@ -6,6 +6,7 @@ Target architecture for v1 Rust AI agent.
 
 - CLI-first agent that can chat and call a small tool set.
 - Support both one-shot (`chat`) and interactive (`repl`) CLI usage with shared loop behavior.
+- Support optional HTTP transport (`serve` with `axum`) that reuses the same one-turn loop behavior as CLI/eval.
 - Keep interactive (`repl`) terminal output low-noise by default while preserving detailed trace logs in file output.
 - Deterministic execution boundaries with limits and safety policies.
 - Clear module boundaries to isolate model API drift and tool complexity.
@@ -19,13 +20,13 @@ src/
   main.rs               # CLI entry point
   config.rs             # env/config loading and defaults
   agent/mod.rs          # orchestration loop
+  server/mod.rs         # optional HTTP transport using shared loop
   eval/mod.rs           # eval case loading and pass/fail harness
   model/client.rs       # model API wrapper
   tools/mod.rs          # tool arg schemas, registry, and dispatch
   tools/search_notes.rs
   tools/fetch_url.rs
   tools/save_note.rs
-  state/mod.rs          # session state and execution limits
 eval/
   cases.yaml            # evaluation dataset
 ```
@@ -85,14 +86,20 @@ Current Phase 4 observability implementation status:
 - `fetch_url` now executes live HTTP retrieval in `src/tools/mod.rs` with allowlist checks, timeout-aware client behavior, content-type validation, and response byte-size limits.
 - Evaluation harness is implemented in `src/eval/mod.rs`, driven by `eval/cases.yaml` and evaluating required tool usage, grounding/no-invented output, and answer format checks.
 
+Current Phase 5 packaging implementation status:
+
+- CLI one-shot mode supports JSON output (`chat --json`) and emits machine-readable turn metadata from the shared loop.
+- Optional HTTP transport is implemented in `src/server/mod.rs` with `GET /health` and `POST /chat`.
+- HTTP `POST /chat` calls the same one-turn loop entrypoint (`run_chat_turn`) used by the evaluation harness.
+
 ## Boundary rules
 
 - `model/client.rs` must not encode business/tool policy.
 - `model/client.rs` should hide provider-specific details from the orchestration loop.
 - `tools/*` must not directly mutate global agent state.
 - `agent/mod.rs` owns loop control and step accounting.
+- `server/mod.rs` must stay transport-only and call into `agent/mod.rs` rather than duplicating loop logic.
 - `config.rs` is the source of runtime limits.
-- `state/mod.rs` tracks per-session state only for v1.
 
 ## Model provider policy
 

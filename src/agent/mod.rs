@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -32,13 +33,13 @@ impl RequestedAnswerFormat {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ExecutedToolCall {
     pub tool_name: String,
     pub output: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct TurnTraceSummary {
     pub input_chars: usize,
     pub output_chars: Option<usize>,
@@ -50,7 +51,7 @@ pub struct TurnTraceSummary {
     pub tool_names: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ChatTurnOutcome {
     pub final_text: String,
     pub trace: TurnTraceSummary,
@@ -99,12 +100,38 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
     Ok(())
 }
 
-pub async fn run_chat_turn(settings: &AgentSettings, message: &str) -> Result<ChatTurnOutcome> {
+pub async fn run_chat_json(settings: &AgentSettings, message: &str) -> Result<()> {
+    info!(
+        provider = %settings.model_provider,
+        model = %settings.model,
+        model_timeout_ms = settings.model_timeout_ms,
+        model_max_retries = settings.model_max_retries,
+        max_steps = settings.max_steps,
+        max_tool_calls = settings.max_tool_calls,
+        max_tool_calls_per_step = settings.max_tool_calls_per_step,
+        max_consecutive_tool_steps = settings.max_consecutive_tool_steps,
+        max_input_chars = settings.max_input_chars,
+        max_output_chars = settings.max_output_chars,
+        notes_dir = %settings.notes_dir,
+        save_note_allow_overwrite = settings.save_note_allow_overwrite,
+        tool_timeout_ms = settings.tool_timeout_ms,
+        "executing one-shot chat turn with json output"
+    );
+
     let mut session = ChatSession::new(settings);
-    session
+    let outcome = session
         .run_turn(message)
         .await
-        .context("chat turn failed for evaluator")
+        .context("chat turn failed in one-shot json mode")?;
+    let encoded =
+        serde_json::to_string(&outcome).context("failed to encode chat turn outcome as json")?;
+    println!("{encoded}");
+    Ok(())
+}
+
+pub async fn run_chat_turn(settings: &AgentSettings, message: &str) -> Result<ChatTurnOutcome> {
+    let mut session = ChatSession::new(settings);
+    session.run_turn(message).await.context("chat turn failed")
 }
 
 pub async fn run_repl(settings: &AgentSettings) -> Result<()> {

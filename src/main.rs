@@ -4,9 +4,10 @@ use std::sync::OnceLock;
 use tracing_subscriber::fmt;
 use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
-use mjolne_vibes::agent::{run_chat, run_repl};
+use mjolne_vibes::agent::{run_chat, run_chat_json, run_repl};
 use mjolne_vibes::config::AgentSettings;
 use mjolne_vibes::eval::{DEFAULT_EVAL_CASES_PATH, run_eval_command};
+use mjolne_vibes::server::run_http_server;
 
 static FILE_LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
@@ -20,7 +21,12 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Send a message to the agent.
-    Chat { message: String },
+    Chat {
+        message: String,
+        /// Emit a machine-readable JSON payload with final text, trace, and tool calls.
+        #[arg(long)]
+        json: bool,
+    },
     /// Start an interactive multi-turn REPL session.
     Repl {
         /// Print info/debug logs to terminal during interactive use.
@@ -32,6 +38,12 @@ enum Commands {
         /// Path to eval cases YAML file.
         #[arg(long, default_value = DEFAULT_EVAL_CASES_PATH)]
         cases: String,
+    },
+    /// Start an HTTP server exposing the same one-turn chat loop.
+    Serve {
+        /// Socket address to bind, for example 127.0.0.1:8080.
+        #[arg(long, default_value = "127.0.0.1:8080")]
+        bind: String,
     },
 }
 
@@ -47,7 +59,9 @@ impl LogMode {
         match command {
             Commands::Repl { verbose: true } => Self::ReplVerbose,
             Commands::Repl { verbose: false } => Self::ReplQuiet,
-            Commands::Chat { .. } | Commands::Eval { .. } => Self::Standard,
+            Commands::Chat { .. } | Commands::Eval { .. } | Commands::Serve { .. } => {
+                Self::Standard
+            }
         }
     }
 }
@@ -59,11 +73,19 @@ async fn main() -> Result<()> {
     let settings = AgentSettings::from_env().context("failed to load configuration")?;
 
     match cli.command {
-        Commands::Chat { message } => run_chat(&settings, &message).await?,
+        Commands::Chat {
+            message,
+            json: false,
+        } => run_chat(&settings, &message).await?,
+        Commands::Chat {
+            message,
+            json: true,
+        } => run_chat_json(&settings, &message).await?,
         Commands::Repl { .. } => run_repl(&settings).await?,
         Commands::Eval { cases } => {
             run_eval_command(&settings, std::path::Path::new(&cases)).await?
         }
+        Commands::Serve { bind } => run_http_server(&settings, &bind).await?,
     }
 
     Ok(())
@@ -147,6 +169,28 @@ mod tests {
         match cli.command {
             Commands::Eval { cases } => assert_eq!(cases, super::DEFAULT_EVAL_CASES_PATH),
             _ => panic!("expected eval command"),
+        }
+    }
+
+    #[test]
+    fn chat_command_supports_json_flag() {
+        let cli = Cli::try_parse_from(["mjolne_vibes", "chat", "hello", "--json"])
+            .expect("parse should succeed");
+        match cli.command {
+            Commands::Chat { message, json } => {
+                assert_eq!(message, "hello");
+                assert!(json);
+            }
+            _ => panic!("expected chat command"),
+        }
+    }
+
+    #[test]
+    fn serve_command_uses_default_bind_address() {
+        let cli = Cli::try_parse_from(["mjolne_vibes", "serve"]).expect("parse should succeed");
+        match cli.command {
+            Commands::Serve { bind } => assert_eq!(bind, "127.0.0.1:8080"),
+            _ => panic!("expected serve command"),
         }
     }
 }

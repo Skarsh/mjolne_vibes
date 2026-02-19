@@ -2,7 +2,7 @@
 
 Execution task board for v1.
 
-## Current focus: Phase 4
+## Current focus: Phase 5
 
 Completed in Phase 0 (2026-02-18):
 
@@ -54,10 +54,16 @@ Progress notes (2026-02-18):
 - [x] Add evaluation harness driven by `eval/cases.yaml`. (2026-02-19, `src/eval/mod.rs` loads/validates cases, runs case prompts through the agent, and applies required-tool/grounding/format checks; CLI entrypoint `cargo run -- eval --cases ...`)
 - [x] Add initial evaluation cases and pass/fail checks. (2026-02-19, added 20 baseline cases in `eval/cases.yaml` with suite-level target pass rate and per-case expectations)
 
-## Upcoming: Phase 4
+## Completed tasks: Phase 5
 
-- [x] Run baseline suite and record pass/fail rate against local Ollama profile. (2026-02-19, `cargo run -- eval --cases eval/cases.yaml` on local `qwen2.5:3b`: `14/20` passed, `70.0%`, below target)
-- [x] Tune prompts/cases until baseline suite reaches >=80% pass rate. (2026-02-19, prompt/format tuning + isolated eval notes directory; `cargo run -- eval --cases eval/cases.yaml` on local `qwen2.5:3b`: `19/20` passed, `95.0%`)
+- [x] Finalize runbook and safety notes in docs. (2026-02-19, updated `README.md`, `docs/RUNBOOK.md`, `docs/SAFETY.md`, and `docs/ROADMAP.md` for `chat --json` and optional HTTP mode)
+- [x] Add `--json` output mode. (2026-02-19, `chat --json` now emits structured turn JSON from the same loop used by eval/HTTP)
+- [x] Optionally add HTTP endpoint (`axum`) reusing agent loop. (2026-02-19, added `serve --bind ...` with `GET /health` and `POST /chat` backed by `run_chat_turn`)
+
+## Upcoming: Phase 5
+
+- [ ] Validate docs-driven new-machine setup duration target (<15 minutes) on a clean environment.
+- [ ] Run explicit CLI vs HTTP behavior parity smoke checks and record notes.
 
 ## Usage notes
 

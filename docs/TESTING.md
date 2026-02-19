@@ -34,12 +34,14 @@ Suggested locations:
 Focus:
 
 - Chat turn with no tool call.
+- One-shot CLI JSON mode (`chat --json`) returns valid JSON with final text + trace metadata.
 - Provider selection path:
   - local Ollama profile
   - OpenAI fallback profile (when credentials are available)
 - Single tool call flow.
 - Multi-step tool call flow.
 - Tool timeout and retry behavior.
+- HTTP `POST /chat` reuses the same loop path and safety limits as CLI one-shot mode.
 
 Suggested layout:
 
@@ -47,6 +49,8 @@ Suggested layout:
 - `tests/tool_single_step.rs`
 - `tests/tool_multi_step.rs`
 - `tests/timeouts_and_retries.rs`
+- `tests/chat_json_mode.rs`
+- `tests/http_chat_transport.rs`
 
 ## 3) Evaluation harness
 

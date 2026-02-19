@@ -14,8 +14,10 @@ The target agent should:
 Current implementation includes:
 
 - CLI entrypoint with `chat "<message>"`,
+- machine-readable one-shot output mode with `chat "<message>" --json`,
 - interactive CLI REPL mode with slash commands (`/help`, `/tools`, `/reset`, `/exit`) and optional `--verbose` terminal logs,
 - evaluation CLI mode (`eval --cases eval/cases.yaml`) with case-driven pass/fail checks,
+- optional HTTP server mode (`serve --bind 127.0.0.1:8080`) with `POST /chat` and `GET /health`,
 - typed runtime config from environment,
 - local-first model provider setup (`ollama` default, `openai` fallback),
 - model client integration with retry/backoff and request timeout,
@@ -56,12 +58,16 @@ This bootstrap also installs repository git hooks from `.githooks/` so local pre
 
 ```bash
 cargo run -- chat "hello"
+# JSON output mode for integrations:
+cargo run -- chat "hello" --json
 # or interactive mode:
 cargo run -- repl
 # interactive mode with terminal logs:
 cargo run -- repl --verbose
 # evaluation harness:
 cargo run -- eval
+# optional HTTP endpoint:
+cargo run -- serve --bind 127.0.0.1:8080
 ```
 
 ## Manual setup (optional)
@@ -135,13 +141,22 @@ MODEL_MAX_RETRIES=2
 
 ```bash
 cargo run -- chat "hello"
+# JSON output mode for integrations:
+cargo run -- chat "hello" --json
 # or interactive mode:
 cargo run -- repl
 # interactive mode with terminal logs:
 cargo run -- repl --verbose
 # evaluation harness:
 cargo run -- eval
+# optional HTTP endpoint:
+cargo run -- serve --bind 127.0.0.1:8080
 ```
+
+HTTP endpoints:
+
+- `GET /health`
+- `POST /chat` with JSON body `{"message":"hello"}`
 
 ## Logging behavior
 

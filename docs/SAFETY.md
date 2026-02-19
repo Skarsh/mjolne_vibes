@@ -46,6 +46,7 @@ Safety and guardrail policy for v1.
 - Reject unknown fields in tool arguments.
 - Reject invalid enum/range/type values.
 - Return machine-readable tool errors with explicit reason.
+- For HTTP transport (`POST /chat`), reject unknown request fields and require typed JSON input (`{"message": string}`).
 
 ## Block conditions
 
@@ -68,3 +69,8 @@ Log per turn:
 - policy block events
 
 No sensitive key material should be logged.
+
+## Transport parity policy
+
+- CLI (`chat`, `chat --json`) and HTTP (`POST /chat`) must reuse the same agent loop and tool-policy enforcement path.
+- Adding a new transport must not bypass existing loop limits, tool limits, or tool safety policies.
