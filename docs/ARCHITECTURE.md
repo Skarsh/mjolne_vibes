@@ -17,6 +17,7 @@ src/
   tools/mod.rs     # tool schemas + dispatch + policy checks
   eval/mod.rs      # eval harness and checks
   graph/mod.rs     # deterministic Rust file/module graph builder
+  graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   server/mod.rs    # HTTP transport; delegates to agent loop
   studio/mod.rs    # native egui shell; chat pane + canvas pane
   studio/events.rs # typed UI/runtime command and event channels
@@ -29,6 +30,7 @@ Implemented in-repo:
 ```text
 src/
   graph/mod.rs     # deterministic Rust file/module graph builder
+  graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   studio/mod.rs    # native egui shell; chat pane + canvas pane
   studio/events.rs # typed UI/runtime command and event channels
 ```
@@ -38,7 +40,6 @@ Still planned:
 ```text
 src/
   studio/canvas.rs # canvas state reducer and rendering helpers
-  graph/watch.rs   # filesystem watch + debounced graph refresh
 ```
 
 Planned contracts:
@@ -58,7 +59,7 @@ Runtime flow (implemented + planned):
 1. User sends chat input from `studio`.
 2. Shared agent loop (`agent/mod.rs`) executes turn and returns text outcome.
 3. `studio/events.rs` carries typed turn and canvas update events.
-4. Background graph worker (planned) refreshes architecture graph on:
+4. Background graph worker refreshes architecture graph on:
    - file-watch events (debounced)
    - chat-turn completion
 5. `studio` applies typed `CanvasOp` updates and re-renders canvas without blocking chat.
@@ -94,7 +95,7 @@ Planned failure handling:
 - `server/mod.rs`: transport-only; no duplicated loop logic.
 - `config.rs`: runtime limits and provider settings source.
 - `graph/mod.rs`: deterministic code graphing only; no model/provider coupling.
-- `graph/watch.rs` (planned): watch/debounce refresh orchestration only.
+- `graph/watch.rs`: watch/debounce refresh orchestration only.
 - `studio/*`: UI orchestration/presentation only; do not bypass agent/tool safety path.
 
 ## Legacy detail

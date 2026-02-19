@@ -49,6 +49,12 @@ pub enum CanvasOp {
     SetStatus {
         message: String,
     },
+    SetGraphStats {
+        revision: u64,
+        node_count: usize,
+        edge_count: usize,
+        trigger: String,
+    },
     AppendTurnSummary {
         user_message: String,
         assistant_preview: String,
@@ -105,7 +111,36 @@ mod tests {
                 assert_eq!(assistant_preview, "summary text");
                 assert_eq!(tool_call_count, 2);
             }
-            CanvasOp::SetStatus { .. } => panic!("unexpected canvas op"),
+            CanvasOp::SetStatus { .. } | CanvasOp::SetGraphStats { .. } => {
+                panic!("unexpected canvas op")
+            }
+        }
+    }
+
+    #[test]
+    fn canvas_set_graph_stats_carries_revision_and_counts() {
+        let op = CanvasOp::SetGraphStats {
+            revision: 7,
+            node_count: 42,
+            edge_count: 99,
+            trigger: "turn_completed".to_owned(),
+        };
+
+        match op {
+            CanvasOp::SetGraphStats {
+                revision,
+                node_count,
+                edge_count,
+                trigger,
+            } => {
+                assert_eq!(revision, 7);
+                assert_eq!(node_count, 42);
+                assert_eq!(edge_count, 99);
+                assert_eq!(trigger, "turn_completed");
+            }
+            CanvasOp::SetStatus { .. } | CanvasOp::AppendTurnSummary { .. } => {
+                panic!("unexpected canvas op")
+            }
         }
     }
 }

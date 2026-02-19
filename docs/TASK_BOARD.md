@@ -9,17 +9,17 @@ Current execution board for maintenance work.
 
 ## Active tasks
 
-- [ ] Add debounced filesystem watcher and turn-completion-triggered graph refresh.
+- [ ] Implement canvas operation reducer (`SetGraph`, `HighlightNodes`, `FocusNode`, `AddAnnotation`, `ClearAnnotations`).
 
 ## Backlog candidates
 
-- [ ] Implement canvas operation reducer (`SetGraph`, `HighlightNodes`, `FocusNode`, `AddAnnotation`, `ClearAnnotations`).
 - [ ] Add changed-node highlight and optional 1-hop impact overlay.
 - [ ] Add integration tests for studio event flow and non-blocking refresh behavior.
 - [ ] Add optional cost/usage counters in turn trace output.
 
 ## Recently completed
 
+- [x] Added debounced filesystem watcher and turn-completion-triggered graph refresh (`src/graph/watch.rs`), wired into `studio` canvas updates (2026-02-19).
 - [x] Implemented deterministic Rust file/module graph builder (`src/graph/mod.rs`) with stable node/edge contracts and deterministic ordering tests (2026-02-19).
 - [x] Implemented native `studio` command shell with chat pane + canvas pane (`egui`) and wired `cargo run -- studio` CLI command (2026-02-19).
 - [x] Added typed `studio` event channel contract for chat turn results and canvas updates (`src/studio/events.rs`) (2026-02-19).

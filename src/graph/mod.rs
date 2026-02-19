@@ -6,6 +6,8 @@ use std::time::SystemTime;
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
+pub mod watch;
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArchitectureGraph {
     pub nodes: Vec<ArchitectureNode>,

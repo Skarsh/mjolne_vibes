@@ -72,6 +72,7 @@ cargo run -- studio
 ```
 
 `studio` opens a native desktop window and requires a graphical session.
+When running, it auto-refreshes workspace graph stats after chat-turn completion and debounced Rust file changes.
 
 HTTP endpoints:
 - `GET /health`
