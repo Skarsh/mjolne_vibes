@@ -51,11 +51,13 @@ Progress notes (2026-02-18):
 - [x] Add per-step tool-call batching cap for safety hardening. (2026-02-18, configurable `AGENT_MAX_TOOL_CALLS_PER_STEP` blocks oversized tool-call batches from one model response step)
 - [x] Emit trace logs for step count, tools used, and latency. (2026-02-18, turn trace summary emits step/tool counts, tool names, and model/tool/turn latency metrics in `src/agent/mod.rs`)
 - [x] Implement live `fetch_url` content retrieval (replace phase-2 stub payload, keep allowlist/safety checks). (2026-02-18, `src/tools/mod.rs` now performs HTTP retrieval with allowlist checks, timeout-aware fetch, content-type validation, and `FETCH_URL_MAX_BYTES` enforcement)
+- [x] Add evaluation harness driven by `eval/cases.yaml`. (2026-02-19, `src/eval/mod.rs` loads/validates cases, runs case prompts through the agent, and applies required-tool/grounding/format checks; CLI entrypoint `cargo run -- eval --cases ...`)
+- [x] Add initial evaluation cases and pass/fail checks. (2026-02-19, added 20 baseline cases in `eval/cases.yaml` with suite-level target pass rate and per-case expectations)
 
 ## Upcoming: Phase 4
 
-- [ ] Add evaluation harness driven by `eval/cases.yaml`.
-- [ ] Add initial evaluation cases and pass/fail checks.
+- [x] Run baseline suite and record pass/fail rate against local Ollama profile. (2026-02-19, `cargo run -- eval --cases eval/cases.yaml` on local `qwen2.5:3b`: `14/20` passed, `70.0%`, below target)
+- [ ] Tune prompts/cases until baseline suite reaches >=80% pass rate.
 
 ## Usage notes
 

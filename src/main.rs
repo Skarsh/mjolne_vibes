@@ -6,6 +6,7 @@ use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::Subscribe
 
 use mjolne_vibes::agent::{run_chat, run_repl};
 use mjolne_vibes::config::AgentSettings;
+use mjolne_vibes::eval::{DEFAULT_EVAL_CASES_PATH, run_eval_command};
 
 static FILE_LOG_GUARD: OnceLock<tracing_appender::non_blocking::WorkerGuard> = OnceLock::new();
 
@@ -26,6 +27,12 @@ enum Commands {
         #[arg(long)]
         verbose: bool,
     },
+    /// Run evaluation cases from YAML.
+    Eval {
+        /// Path to eval cases YAML file.
+        #[arg(long, default_value = DEFAULT_EVAL_CASES_PATH)]
+        cases: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,7 +47,7 @@ impl LogMode {
         match command {
             Commands::Repl { verbose: true } => Self::ReplVerbose,
             Commands::Repl { verbose: false } => Self::ReplQuiet,
-            Commands::Chat { .. } => Self::Standard,
+            Commands::Chat { .. } | Commands::Eval { .. } => Self::Standard,
         }
     }
 }
@@ -54,6 +61,9 @@ async fn main() -> Result<()> {
     match cli.command {
         Commands::Chat { message } => run_chat(&settings, &message).await?,
         Commands::Repl { .. } => run_repl(&settings).await?,
+        Commands::Eval { cases } => {
+            run_eval_command(&settings, std::path::Path::new(&cases)).await?
+        }
     }
 
     Ok(())
@@ -129,5 +139,14 @@ mod tests {
             LogMode::from_command(&Commands::Repl { verbose: true }),
             LogMode::ReplVerbose
         );
+    }
+
+    #[test]
+    fn eval_command_uses_default_cases_path() {
+        let cli = Cli::try_parse_from(["mjolne_vibes", "eval"]).expect("parse should succeed");
+        match cli.command {
+            Commands::Eval { cases } => assert_eq!(cases, super::DEFAULT_EVAL_CASES_PATH),
+            _ => panic!("expected eval command"),
+        }
     }
 }

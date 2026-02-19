@@ -132,7 +132,10 @@ Implementation notes:
 
 - Turn trace summary logging is implemented in `src/agent/mod.rs`, emitting step count, tool usage, and model/tool/turn latency metrics per turn (2026-02-18).
 - Live `fetch_url` retrieval is implemented in `src/tools/mod.rs` with domain allowlist checks, timeout-aware HTTP fetching, content-type validation, and response byte-size enforcement (`FETCH_URL_MAX_BYTES`) (2026-02-18).
-- Next task: add evaluation harness driven by `eval/cases.yaml`.
+- Evaluation harness is implemented in `src/eval/mod.rs` and wired to CLI via `cargo run -- eval --cases ...`; checks include required tool usage, no invented tool output heuristics, and answer format validation (2026-02-19).
+- Baseline case dataset is implemented in `eval/cases.yaml` with 20 initial cases and target pass rate configuration (2026-02-19).
+- Baseline eval run against local Ollama (`qwen2.5:3b`) produced `14/20` passed (`70.0%`) on 2026-02-19; failures are diagnosable from per-case check output and turn trace logs.
+- Next task: tune prompts/cases and agent prompting behavior to reach >=80% pass rate.
 
 ## Phase 5: Packaging + Next Step
 

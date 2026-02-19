@@ -187,6 +187,18 @@ Interactive mode with terminal logs enabled:
 cargo run -- repl --verbose
 ```
 
+Evaluation harness (default `eval/cases.yaml`):
+
+```bash
+cargo run -- eval
+```
+
+Evaluation harness (custom cases path):
+
+```bash
+cargo run -- eval --cases path/to/cases.yaml
+```
+
 REPL commands:
 
 - `/help`

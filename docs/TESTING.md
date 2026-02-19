@@ -54,6 +54,14 @@ Dataset:
 
 - `eval/cases.yaml` with 20-30 representative prompts.
 
+Run command:
+
+```bash
+cargo run -- eval
+# optional custom file:
+cargo run -- eval --cases path/to/cases.yaml
+```
+
 Required checks:
 
 - Uses required tool when needed.

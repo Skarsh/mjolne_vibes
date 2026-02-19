@@ -17,6 +17,46 @@ use crate::tools::{
 
 const SYSTEM_PROMPT: &str = "You are a concise, reliable Rust AI assistant. Be helpful, truthful, and use tools when needed.";
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExecutedToolCall {
+    pub tool_name: String,
+    pub output: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnTraceSummary {
+    pub input_chars: usize,
+    pub output_chars: Option<usize>,
+    pub steps_executed: u32,
+    pub model_calls: u32,
+    pub tool_calls: u32,
+    pub total_model_latency: Duration,
+    pub total_tool_latency: Duration,
+    pub tool_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChatTurnOutcome {
+    pub final_text: String,
+    pub trace: TurnTraceSummary,
+    pub tool_calls: Vec<ExecutedToolCall>,
+}
+
+impl TurnTraceSummary {
+    fn from_trace(trace: &TurnTrace) -> Self {
+        Self {
+            input_chars: trace.input_chars,
+            output_chars: trace.output_chars,
+            steps_executed: trace.steps_executed,
+            model_calls: trace.model_calls,
+            tool_calls: trace.tool_calls,
+            total_model_latency: trace.total_model_latency,
+            total_tool_latency: trace.total_tool_latency,
+            tool_names: trace.tool_names.clone(),
+        }
+    }
+}
+
 pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
     info!(
         provider = %settings.model_provider,
@@ -36,12 +76,20 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
     );
 
     let mut session = ChatSession::new(settings);
-    let text = session
+    let outcome = session
         .run_turn(message)
         .await
         .context("chat turn failed in one-shot mode")?;
-    println!("{text}");
+    println!("{}", outcome.final_text);
     Ok(())
+}
+
+pub async fn run_chat_turn(settings: &AgentSettings, message: &str) -> Result<ChatTurnOutcome> {
+    let mut session = ChatSession::new(settings);
+    session
+        .run_turn(message)
+        .await
+        .context("chat turn failed for evaluator")
 }
 
 pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
@@ -101,7 +149,7 @@ pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
                 println!("Session history cleared.");
             }
             _ => match session.run_turn(input).await {
-                Ok(text) => println!("{text}"),
+                Ok(outcome) => println!("{}", outcome.final_text),
                 Err(error) => eprintln!("error: {error}"),
             },
         }
@@ -128,6 +176,7 @@ struct TurnTrace {
     total_model_latency: Duration,
     total_tool_latency: Duration,
     tool_names: Vec<String>,
+    executed_tool_calls: Vec<ExecutedToolCall>,
 }
 
 impl TurnTrace {
@@ -166,12 +215,16 @@ impl ChatSession {
         self.conversation = vec![ModelMessage::system(SYSTEM_PROMPT)];
     }
 
-    async fn run_turn(&mut self, message: &str) -> Result<String> {
+    async fn run_turn(&mut self, message: &str) -> Result<ChatTurnOutcome> {
         let turn_started_at = Instant::now();
         let mut trace = TurnTrace::with_input(message);
         let result = self.run_turn_inner(message, &mut trace).await;
         log_turn_trace(&trace, turn_started_at.elapsed(), result.as_ref().err());
-        result
+        result.map(|final_text| ChatTurnOutcome {
+            final_text,
+            trace: TurnTraceSummary::from_trace(&trace),
+            tool_calls: trace.executed_tool_calls,
+        })
     }
 
     async fn run_turn_inner(&mut self, message: &str, trace: &mut TurnTrace) -> Result<String> {
@@ -274,6 +327,9 @@ impl ChatSession {
                         .total_tool_latency
                         .saturating_add(tool_trace.total_tool_latency);
                     trace.tool_names.extend(tool_trace.tool_names);
+                    trace
+                        .executed_tool_calls
+                        .extend(tool_trace.executed_tool_calls);
                 }
             }
         }
@@ -290,6 +346,7 @@ struct ToolExecutionTrace {
     tool_calls: u32,
     total_tool_latency: Duration,
     tool_names: Vec<String>,
+    executed_tool_calls: Vec<ExecutedToolCall>,
 }
 
 fn log_turn_trace(trace: &TurnTrace, turn_latency: Duration, error: Option<&anyhow::Error>) {
@@ -505,6 +562,10 @@ async fn append_tool_results(
         trace.tool_calls = trace.tool_calls.saturating_add(1);
         trace.total_tool_latency = trace.total_tool_latency.saturating_add(tool_latency);
         trace.tool_names.push(tool_name.clone());
+        trace.executed_tool_calls.push(ExecutedToolCall {
+            tool_name: tool_name.clone(),
+            output: content.clone(),
+        });
 
         messages.push(ModelMessage::tool_result(
             content,

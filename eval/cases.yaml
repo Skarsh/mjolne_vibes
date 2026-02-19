@@ -1,0 +1,134 @@
+target_pass_rate: 0.80
+cases:
+  - id: no_tool_greeting
+    prompt: Say hello in one short sentence.
+    answer_format: plain_text
+    answer_must_contain: [hello]
+
+  - id: no_tool_capabilities
+    prompt: In one short sentence, describe what tools you can use.
+    answer_format: plain_text
+    answer_must_contain: [tool]
+
+  - id: no_tool_json_echo
+    prompt: Respond as a JSON object with keys "task" and "status". Set "task" to "echo" and "status" to "ok".
+    answer_format: json_object
+    answer_must_contain: ["\"echo\"", "\"ok\""]
+
+  - id: no_tool_markdown_bullets
+    prompt: Respond with exactly two markdown bullet points about Rust safety and performance.
+    answer_format: markdown_bullets
+    answer_must_contain: [Rust]
+
+  - id: fetch_example_json_summary
+    prompt: Use fetch_url on https://example.com. Return a JSON object with keys "url" and "summary".
+    required_tools: [fetch_url]
+    answer_format: json_object
+    answer_must_contain: [example.com]
+    no_invented_tool_output: true
+
+  - id: fetch_example_markdown
+    prompt: Use fetch_url on https://example.com and respond with markdown bullets summarizing what the page is.
+    required_tools: [fetch_url]
+    answer_format: markdown_bullets
+    answer_must_contain: [Example]
+    no_invented_tool_output: true
+
+  - id: fetch_example_plain_title
+    prompt: Fetch https://example.com with fetch_url and tell me the page title in one sentence.
+    required_tools: [fetch_url]
+    answer_format: plain_text
+    answer_must_contain: [Example]
+    no_invented_tool_output: true
+
+  - id: fetch_example_url_echo
+    prompt: Use fetch_url on https://example.com and include the final URL in your answer.
+    required_tools: [fetch_url]
+    answer_format: plain_text
+    answer_must_contain: [example.com]
+    no_invented_tool_output: true
+
+  - id: fetch_example_status_json
+    prompt: Use fetch_url on https://example.com and return a JSON object with keys "status_code" and "final_url".
+    required_tools: [fetch_url]
+    answer_format: json_object
+    answer_must_contain: [status_code]
+    no_invented_tool_output: true
+
+  - id: fetch_example_content_reference
+    prompt: Use fetch_url on https://example.com and mention the phrase "Example Domain" in your answer.
+    required_tools: [fetch_url]
+    answer_format: plain_text
+    answer_must_contain: ["Example Domain"]
+    no_invented_tool_output: true
+
+  - id: search_notes_empty_json
+    prompt: Use search_notes with query "rust" and limit 3. Return a JSON object with keys "query" and "result_count".
+    required_tools: [search_notes]
+    answer_format: json_object
+    answer_must_contain: [rust]
+    no_invented_tool_output: true
+
+  - id: search_notes_empty_plain
+    prompt: Use search_notes with query "safety" and limit 2, then report how many results were returned.
+    required_tools: [search_notes]
+    answer_format: plain_text
+    answer_must_contain: [result]
+    no_invented_tool_output: true
+
+  - id: search_notes_limit_one
+    prompt: Use search_notes with query "tokio" and limit 1. Respond in plain text.
+    required_tools: [search_notes]
+    answer_format: plain_text
+    answer_must_contain: [tokio]
+    no_invented_tool_output: true
+
+  - id: search_notes_limit_seven
+    prompt: Use search_notes with query "async" and limit 7, then summarize in one sentence.
+    required_tools: [search_notes]
+    answer_format: plain_text
+    answer_must_contain: [async]
+    no_invented_tool_output: true
+
+  - id: save_note_create_json
+    prompt: Use save_note with title "Eval Case One" and body "hello from eval". Return a JSON object with keys "status" and "path".
+    required_tools: [save_note]
+    answer_format: json_object
+    answer_must_contain: [status, path]
+    no_invented_tool_output: true
+
+  - id: save_note_create_plain
+    prompt: Use save_note with title "Eval Case Two" and body "rust eval note". Reply with one sentence confirming it was saved.
+    required_tools: [save_note]
+    answer_format: plain_text
+    answer_must_contain: [saved]
+    no_invented_tool_output: true
+
+  - id: save_note_symbols
+    prompt: 'Use save_note with title "Eval: Symbols & Spaces" and body "normalize filename test". Mention the created filename in your answer.'
+    required_tools: [save_note]
+    answer_format: plain_text
+    answer_must_contain: [.md]
+    no_invented_tool_output: true
+
+  - id: fetch_and_save_combo
+    prompt: Use fetch_url on https://example.com, then save_note with title "Eval Combined" and body containing "Example Domain". Respond with markdown bullets.
+    required_tools: [fetch_url, save_note]
+    answer_format: markdown_bullets
+    answer_must_contain: [Example]
+    no_invented_tool_output: true
+
+  - id: search_then_save_combo
+    prompt: Use search_notes with query "rust" and limit 2, then use save_note with title "Eval Search Save" and body "search results recorded".
+    required_tools: [search_notes, save_note]
+    answer_format: plain_text
+    answer_must_contain: [search]
+    no_invented_tool_output: true
+
+  - id: fetch_json_no_forbidden
+    prompt: Use fetch_url on https://example.com and return a JSON object with keys "source" and "note".
+    required_tools: [fetch_url]
+    answer_format: json_object
+    answer_must_contain: [source]
+    answer_must_not_contain: [stackoverflow]
+    no_invented_tool_output: true

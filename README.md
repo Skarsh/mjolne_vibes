@@ -15,6 +15,7 @@ Current implementation includes:
 
 - CLI entrypoint with `chat "<message>"`,
 - interactive CLI REPL mode with slash commands (`/help`, `/tools`, `/reset`, `/exit`) and optional `--verbose` terminal logs,
+- evaluation CLI mode (`eval --cases eval/cases.yaml`) with case-driven pass/fail checks,
 - typed runtime config from environment,
 - local-first model provider setup (`ollama` default, `openai` fallback),
 - model client integration with retry/backoff and request timeout,
@@ -27,7 +28,8 @@ Current implementation includes:
 - turn trace logging for step count, tool usage, and model/tool/turn latency,
 - configurable input/output character limits (`AGENT_MAX_INPUT_CHARS`, `AGENT_MAX_OUTPUT_CHARS`),
 - `save_note` writes markdown into a controlled directory (`NOTES_DIR`) with overwrite confirmation gating (`SAVE_NOTE_ALLOW_OVERWRITE`),
-- live `fetch_url` retrieval with domain allowlist guardrail (`FETCH_URL_ALLOWED_DOMAINS`), response size cap (`FETCH_URL_MAX_BYTES`), and content-type checks.
+- live `fetch_url` retrieval with domain allowlist guardrail (`FETCH_URL_ALLOWED_DOMAINS`), response size cap (`FETCH_URL_MAX_BYTES`), and content-type checks,
+- evaluation harness with `eval/cases.yaml` (20 baseline cases) and checks for required tool usage, grounding/no-invented output, and answer format.
 
 ## Provider strategy
 
@@ -58,6 +60,8 @@ cargo run -- chat "hello"
 cargo run -- repl
 # interactive mode with terminal logs:
 cargo run -- repl --verbose
+# evaluation harness:
+cargo run -- eval
 ```
 
 ## Manual setup (optional)
@@ -135,6 +139,8 @@ cargo run -- chat "hello"
 cargo run -- repl
 # interactive mode with terminal logs:
 cargo run -- repl --verbose
+# evaluation harness:
+cargo run -- eval
 ```
 
 ## Logging behavior

@@ -19,6 +19,7 @@ src/
   main.rs               # CLI entry point
   config.rs             # env/config loading and defaults
   agent/mod.rs          # orchestration loop
+  eval/mod.rs           # eval case loading and pass/fail harness
   model/client.rs       # model API wrapper
   tools/mod.rs          # tool arg schemas, registry, and dispatch
   tools/search_notes.rs
@@ -82,6 +83,7 @@ Current Phase 4 observability implementation status:
 
 - Turn-level trace summary logs are emitted from `src/agent/mod.rs`, including step count, tool usage, and model/tool/turn latency metrics.
 - `fetch_url` now executes live HTTP retrieval in `src/tools/mod.rs` with allowlist checks, timeout-aware client behavior, content-type validation, and response byte-size limits.
+- Evaluation harness is implemented in `src/eval/mod.rs`, driven by `eval/cases.yaml` and evaluating required tool usage, grounding/no-invented output, and answer format checks.
 
 ## Boundary rules
 
