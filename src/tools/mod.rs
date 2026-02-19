@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Url;
-use reqwest::header::{CONTENT_TYPE, HeaderMap};
+use reqwest::header::{CONTENT_TYPE, HeaderMap, LOCATION};
 use reqwest::redirect::Policy;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -113,6 +113,7 @@ pub struct ToolRuntimeConfig {
     pub save_note_allow_overwrite: bool,
     pub tool_timeout_ms: u64,
     pub fetch_url_max_bytes: usize,
+    pub fetch_url_follow_redirects: bool,
 }
 
 impl ToolRuntimeConfig {
@@ -122,6 +123,7 @@ impl ToolRuntimeConfig {
         save_note_allow_overwrite: bool,
         tool_timeout_ms: u64,
         fetch_url_max_bytes: usize,
+        fetch_url_follow_redirects: bool,
     ) -> Self {
         Self {
             fetch_url_allowed_domains,
@@ -129,6 +131,7 @@ impl ToolRuntimeConfig {
             save_note_allow_overwrite,
             tool_timeout_ms,
             fetch_url_max_bytes,
+            fetch_url_follow_redirects,
         }
     }
 }
@@ -163,6 +166,7 @@ pub async fn dispatch_tool_call(
                 &runtime.fetch_url_allowed_domains,
                 runtime.tool_timeout_ms,
                 runtime.fetch_url_max_bytes,
+                runtime.fetch_url_follow_redirects,
             )
             .await
         }
@@ -385,10 +389,12 @@ async fn run_fetch_url(
     fetch_url_allowed_domains: &[String],
     tool_timeout_ms: u64,
     fetch_url_max_bytes: usize,
+    fetch_url_follow_redirects: bool,
 ) -> Result<Value, ToolDispatchError> {
     run_fetch_url_with_fetcher(
         args,
         fetch_url_allowed_domains,
+        fetch_url_follow_redirects,
         tool_timeout_ms,
         fetch_url_max_bytes,
         fetch_url_over_http,
@@ -407,16 +413,24 @@ struct FetchResponse {
 async fn run_fetch_url_with_fetcher<F, Fut>(
     args: FetchUrlArgs,
     fetch_url_allowed_domains: &[String],
+    fetch_url_follow_redirects: bool,
     tool_timeout_ms: u64,
     fetch_url_max_bytes: usize,
     fetcher: F,
 ) -> Result<Value, ToolDispatchError>
 where
-    F: Fn(Url, u64, usize) -> Fut,
+    F: Fn(Url, Vec<String>, bool, u64, usize) -> Fut,
     Fut: std::future::Future<Output = Result<FetchResponse, ToolDispatchError>>,
 {
     let parsed = parse_fetch_url(&args.url, fetch_url_allowed_domains)?;
-    let fetched = fetcher(parsed, tool_timeout_ms, fetch_url_max_bytes).await?;
+    let fetched = fetcher(
+        parsed,
+        fetch_url_allowed_domains.to_vec(),
+        fetch_url_follow_redirects,
+        tool_timeout_ms,
+        fetch_url_max_bytes,
+    )
+    .await?;
 
     if !status_is_success(fetched.status_code) {
         return Err(ToolDispatchError::ExecutionFailed {
@@ -460,12 +474,14 @@ where
 
 async fn fetch_url_over_http(
     parsed_url: Url,
+    fetch_url_allowed_domains: Vec<String>,
+    fetch_url_follow_redirects: bool,
     tool_timeout_ms: u64,
     fetch_url_max_bytes: usize,
 ) -> Result<FetchResponse, ToolDispatchError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(tool_timeout_ms))
-        // Keep redirects disabled to prevent cross-domain hops outside allowlist intent.
+        // Redirects are handled explicitly below so we can enforce allowlist policy per hop.
         .redirect(Policy::none())
         .build()
         .map_err(|error| ToolDispatchError::ExecutionFailed {
@@ -476,56 +492,80 @@ async fn fetch_url_over_http(
             ),
         })?;
 
-    let mut response = client
-        .get(parsed_url.clone())
-        .send()
-        .await
-        .map_err(|error| ToolDispatchError::ExecutionFailed {
-            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-            reason: format!(
-                "failed to fetch `{parsed_url}`: {}",
-                describe_reqwest_error(&error)
-            ),
-        })?;
-
-    let status_code = response.status().as_u16();
-    let content_type = extract_content_type(response.headers())?;
-    let mut body = Vec::new();
-    while let Some(chunk) =
-        response
-            .chunk()
+    let mut current_url = parsed_url.clone();
+    let mut redirects_followed = 0_usize;
+    loop {
+        let response = client
+            .get(current_url.clone())
+            .send()
             .await
             .map_err(|error| ToolDispatchError::ExecutionFailed {
                 tool_name: FETCH_URL_TOOL_NAME.to_owned(),
                 reason: format!(
-                    "failed to read response body from `{parsed_url}`: {}",
+                    "failed to fetch `{current_url}`: {}",
                     describe_reqwest_error(&error)
                 ),
-            })?
-    {
-        let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
-            ToolDispatchError::ExecutionFailed {
-                tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-                reason: "response body length overflowed while reading".to_owned(),
-            }
-        })?;
-        if next_len > fetch_url_max_bytes {
-            return Err(ToolDispatchError::PolicyViolation {
-                tool_name: FETCH_URL_TOOL_NAME.to_owned(),
-                reason: format!(
-                    "response body exceeded FETCH_URL_MAX_BYTES limit: {next_len} bytes (max {fetch_url_max_bytes})"
-                ),
-            });
-        }
-        body.extend_from_slice(&chunk);
-    }
+            })?;
 
-    Ok(FetchResponse {
-        final_url: response.url().as_str().to_owned(),
-        status_code,
-        content_type,
-        body,
-    })
+        if fetch_url_follow_redirects && response.status().is_redirection() {
+            if redirects_followed >= 10 {
+                return Err(ToolDispatchError::ExecutionFailed {
+                    tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+                    reason: format!(
+                        "redirect chain exceeded maximum of 10 hops for `{parsed_url}`"
+                    ),
+                });
+            }
+
+            current_url = resolve_redirect_target(
+                &current_url,
+                response.headers(),
+                &fetch_url_allowed_domains,
+            )?;
+            redirects_followed = redirects_followed.saturating_add(1);
+            continue;
+        }
+
+        let status_code = response.status().as_u16();
+        let content_type = extract_content_type(response.headers())?;
+        let mut body = Vec::new();
+        let mut response = response;
+        while let Some(chunk) =
+            response
+                .chunk()
+                .await
+                .map_err(|error| ToolDispatchError::ExecutionFailed {
+                    tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+                    reason: format!(
+                        "failed to read response body from `{current_url}`: {}",
+                        describe_reqwest_error(&error)
+                    ),
+                })?
+        {
+            let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+                ToolDispatchError::ExecutionFailed {
+                    tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+                    reason: "response body length overflowed while reading".to_owned(),
+                }
+            })?;
+            if next_len > fetch_url_max_bytes {
+                return Err(ToolDispatchError::PolicyViolation {
+                    tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+                    reason: format!(
+                        "response body exceeded FETCH_URL_MAX_BYTES limit: {next_len} bytes (max {fetch_url_max_bytes})"
+                    ),
+                });
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        return Ok(FetchResponse {
+            final_url: current_url.as_str().to_owned(),
+            status_code,
+            content_type,
+            body,
+        });
+    }
 }
 
 fn status_is_success(status_code: u16) -> bool {
@@ -614,6 +654,63 @@ fn parse_fetch_url(
     }
 
     Ok(parsed)
+}
+
+fn resolve_redirect_target(
+    current_url: &Url,
+    headers: &HeaderMap,
+    fetch_url_allowed_domains: &[String],
+) -> Result<Url, ToolDispatchError> {
+    let location = headers
+        .get(LOCATION)
+        .ok_or_else(|| ToolDispatchError::ExecutionFailed {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!("received redirect response without Location header for `{current_url}`"),
+        })?
+        .to_str()
+        .map_err(|error| ToolDispatchError::ExecutionFailed {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!(
+                "received redirect response with invalid Location header for `{current_url}`: {error}"
+            ),
+        })?;
+
+    let target =
+        current_url
+            .join(location)
+            .map_err(|error| ToolDispatchError::ExecutionFailed {
+                tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+                reason: format!(
+                    "failed to resolve redirect target `{location}` from `{current_url}`: {error}"
+                ),
+            })?;
+
+    if target.scheme() != "http" && target.scheme() != "https" {
+        return Err(ToolDispatchError::PolicyViolation {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!(
+                "redirect target scheme `{}` is not allowed",
+                target.scheme()
+            ),
+        });
+    }
+
+    let host = target
+        .host_str()
+        .ok_or_else(|| ToolDispatchError::PolicyViolation {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!("redirect target `{target}` must include a host"),
+        })?
+        .to_ascii_lowercase();
+
+    if !host_allowed(&host, fetch_url_allowed_domains) {
+        return Err(ToolDispatchError::PolicyViolation {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: format!("redirect target host `{host}` is not in allowlist"),
+        });
+    }
+
+    Ok(target)
 }
 
 fn extract_content_type(headers: &HeaderMap) -> Result<Option<String>, ToolDispatchError> {
@@ -829,13 +926,15 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    use reqwest::Url;
+    use reqwest::header::{HeaderMap, HeaderValue, LOCATION};
     use serde_json::{Value, json};
 
     use super::{
         FETCH_URL_TOOL_NAME, FetchResponse, FetchUrlArgs, SAVE_NOTE_TOOL_NAME,
         SEARCH_NOTES_TOOL_NAME, ToolDispatchError, ToolDispatchOutput, ToolRuntimeConfig,
         dispatch_tool_call as dispatch_tool_call_async, host_allowed, normalize_note_title,
-        run_fetch_url_with_fetcher, tool_definitions,
+        resolve_redirect_target, run_fetch_url_with_fetcher, tool_definitions,
     };
 
     fn dispatch_tool_call(
@@ -1006,9 +1105,10 @@ mod tests {
                 url: "https://example.com".to_owned(),
             },
             &test_allowlist(),
+            false,
             5_000,
             100_000,
-            |_url, _timeout_ms, _max_bytes| async {
+            |_url, _allowlist, _follow_redirects, _timeout_ms, _max_bytes| async {
                 Ok(FetchResponse {
                     final_url: "https://example.com/".to_owned(),
                     status_code: 200,
@@ -1281,9 +1381,10 @@ mod tests {
                 url: "https://example.com".to_owned(),
             },
             &test_allowlist(),
+            false,
             5_000,
             100_000,
-            |_url, _timeout_ms, _max_bytes| async {
+            |_url, _allowlist, _follow_redirects, _timeout_ms, _max_bytes| async {
                 Ok(FetchResponse {
                     final_url: "https://example.com/".to_owned(),
                     status_code: 200,
@@ -1307,9 +1408,10 @@ mod tests {
                 url: "https://example.com".to_owned(),
             },
             &test_allowlist(),
+            false,
             5_000,
             4,
-            |_url, _timeout_ms, _max_bytes| async {
+            |_url, _allowlist, _follow_redirects, _timeout_ms, _max_bytes| async {
                 Ok(FetchResponse {
                     final_url: "https://example.com/".to_owned(),
                     status_code: 200,
@@ -1326,6 +1428,52 @@ mod tests {
         assert!(reason.contains("FETCH_URL_MAX_BYTES"));
     }
 
+    #[test]
+    fn resolve_redirect_target_allows_relative_location_on_allowlisted_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert(LOCATION, HeaderValue::from_static("/docs"));
+        let current = Url::parse("https://example.com/start").expect("url should parse");
+
+        let target = resolve_redirect_target(&current, &headers, &test_allowlist())
+            .expect("redirect target should resolve");
+
+        assert_eq!(target.as_str(), "https://example.com/docs");
+    }
+
+    #[test]
+    fn resolve_redirect_target_rejects_disallowed_host() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            LOCATION,
+            HeaderValue::from_static("https://evil.example.net/redirect"),
+        );
+        let current = Url::parse("https://example.com/start").expect("url should parse");
+
+        let error = resolve_redirect_target(&current, &headers, &test_allowlist())
+            .expect_err("disallowed redirect host should fail");
+
+        let ToolDispatchError::PolicyViolation { reason, .. } = error else {
+            panic!("expected policy violation");
+        };
+        assert!(reason.contains("redirect target host"));
+        assert!(reason.contains("allowlist"));
+    }
+
+    #[test]
+    fn resolve_redirect_target_rejects_non_http_scheme() {
+        let mut headers = HeaderMap::new();
+        headers.insert(LOCATION, HeaderValue::from_static("ftp://example.com/file"));
+        let current = Url::parse("https://example.com/start").expect("url should parse");
+
+        let error = resolve_redirect_target(&current, &headers, &test_allowlist())
+            .expect_err("non-http redirect scheme should fail");
+
+        let ToolDispatchError::PolicyViolation { reason, .. } = error else {
+            panic!("expected policy violation");
+        };
+        assert!(reason.contains("redirect target scheme"));
+    }
+
     fn test_allowlist() -> Vec<String> {
         vec!["example.com".to_owned(), "docs.rs".to_owned()]
     }
@@ -1337,6 +1485,7 @@ mod tests {
             save_note_allow_overwrite,
             5_000,
             100_000,
+            false,
         )
     }
 

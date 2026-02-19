@@ -25,6 +25,7 @@ Safety policy for runtime behavior.
 `fetch_url(url: string)`
 - allow only `http`/`https`
 - host must match `FETCH_URL_ALLOWED_DOMAINS`
+- optional redirect-following (`FETCH_URL_FOLLOW_REDIRECTS=true`) is restricted to `http`/`https` targets whose hosts also match `FETCH_URL_ALLOWED_DOMAINS`
 - enforce timeout, content-type checks, byte cap
 
 `save_note(title: string, body: string)`

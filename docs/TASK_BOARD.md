@@ -13,7 +13,6 @@ Current execution board for maintenance work.
 ## Backlog candidates
 
 - [ ] Add optional cost/usage counters in turn trace output.
-- [ ] Add optional safe redirect-following for `fetch_url`, restricted to hosts in `FETCH_URL_ALLOWED_DOMAINS`.
 
 ## Recently completed
 
@@ -24,6 +23,7 @@ Current execution board for maintenance work.
 - [x] Replaced HTTP substring-based error classification with typed turn error kinds to preserve status mapping robustness (2026-02-19).
 - [x] Centralized tool metadata (signature/description/schema) in `tools` and removed duplicated agent definitions (2026-02-19).
 - [x] Unified answer-format validation logic across runtime and eval via shared module (2026-02-19).
+- [x] Added optional safe redirect-following for `fetch_url`, restricted to allowlisted hosts (`FETCH_URL_FOLLOW_REDIRECTS`) (2026-02-19).
 
 ## Board rules
 

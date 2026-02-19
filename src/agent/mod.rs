@@ -140,6 +140,7 @@ pub async fn run_chat(settings: &AgentSettings, message: &str) -> Result<()> {
         notes_dir = %settings.notes_dir,
         save_note_allow_overwrite = settings.save_note_allow_overwrite,
         tool_timeout_ms = settings.tool_timeout_ms,
+        fetch_url_follow_redirects = settings.fetch_url_follow_redirects,
         "executing one-shot chat turn"
     );
 
@@ -167,6 +168,7 @@ pub async fn run_chat_json(settings: &AgentSettings, message: &str) -> Result<()
         notes_dir = %settings.notes_dir,
         save_note_allow_overwrite = settings.save_note_allow_overwrite,
         tool_timeout_ms = settings.tool_timeout_ms,
+        fetch_url_follow_redirects = settings.fetch_url_follow_redirects,
         "executing one-shot chat turn with json output"
     );
 
@@ -207,6 +209,7 @@ pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
         notes_dir = %settings.notes_dir,
         save_note_allow_overwrite = settings.save_note_allow_overwrite,
         tool_timeout_ms = settings.tool_timeout_ms,
+        fetch_url_follow_redirects = settings.fetch_url_follow_redirects,
         "starting interactive repl session"
     );
 
@@ -299,6 +302,7 @@ impl ChatSession {
             settings.save_note_allow_overwrite,
             settings.tool_timeout_ms,
             settings.fetch_url_max_bytes as usize,
+            settings.fetch_url_follow_redirects,
         );
         let conversation = vec![ModelMessage::system(SYSTEM_PROMPT)];
 
@@ -1113,6 +1117,7 @@ mod tests {
             max_output_chars: 8_000,
             tool_timeout_ms: 5_000,
             fetch_url_max_bytes: 100_000,
+            fetch_url_follow_redirects: false,
             fetch_url_allowed_domains: vec!["example.com".to_owned()],
             notes_dir: "notes".to_owned(),
             save_note_allow_overwrite: false,

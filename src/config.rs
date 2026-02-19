@@ -15,6 +15,7 @@ pub const DEFAULT_MAX_INPUT_CHARS: u32 = 4_000;
 pub const DEFAULT_MAX_OUTPUT_CHARS: u32 = 8_000;
 pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 5_000;
 pub const DEFAULT_FETCH_URL_MAX_BYTES: u32 = 100_000;
+pub const DEFAULT_FETCH_URL_FOLLOW_REDIRECTS: bool = false;
 pub const DEFAULT_MODEL_TIMEOUT_MS: u64 = 20_000;
 pub const DEFAULT_MODEL_MAX_RETRIES: u32 = 2;
 pub const DEFAULT_FETCH_URL_ALLOWED_DOMAINS: &str = "example.com";
@@ -77,6 +78,7 @@ pub struct AgentSettings {
     pub max_output_chars: u32,
     pub tool_timeout_ms: u64,
     pub fetch_url_max_bytes: u32,
+    pub fetch_url_follow_redirects: bool,
     pub fetch_url_allowed_domains: Vec<String>,
     pub notes_dir: String,
     pub save_note_allow_overwrite: bool,
@@ -135,6 +137,10 @@ impl AgentSettings {
         let tool_timeout_ms = parse_positive_u64_env("TOOL_TIMEOUT_MS", DEFAULT_TOOL_TIMEOUT_MS)?;
         let fetch_url_max_bytes =
             parse_positive_u32_env("FETCH_URL_MAX_BYTES", DEFAULT_FETCH_URL_MAX_BYTES)?;
+        let fetch_url_follow_redirects = parse_bool_env(
+            "FETCH_URL_FOLLOW_REDIRECTS",
+            DEFAULT_FETCH_URL_FOLLOW_REDIRECTS,
+        )?;
 
         let fetch_url_allowed_domains = parse_domain_allowlist(
             "FETCH_URL_ALLOWED_DOMAINS",
@@ -166,6 +172,7 @@ impl AgentSettings {
             max_output_chars,
             tool_timeout_ms,
             fetch_url_max_bytes,
+            fetch_url_follow_redirects,
             fetch_url_allowed_domains,
             notes_dir,
             save_note_allow_overwrite,
