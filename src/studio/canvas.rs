@@ -124,8 +124,9 @@ pub fn render_graph_snapshot(
     impact_node_ids: &[String],
     show_impact_overlay: bool,
 ) {
-    const GRAPH_VIEW_HEIGHT: f32 = 300.0;
-    const NODE_RADIUS: f32 = 8.0;
+    const GRAPH_VIEW_HEIGHT: f32 = 360.0;
+    const MODULE_NODE_RADIUS: f32 = 7.0;
+    const FILE_NODE_SIZE: egui::Vec2 = egui::vec2(15.0, 9.0);
     const LABEL_MAX_CHARS: usize = 22;
 
     let desired_size = egui::vec2(ui.available_width().max(320.0), GRAPH_VIEW_HEIGHT);
@@ -133,8 +134,14 @@ pub fn render_graph_snapshot(
     let frame = response.rect.shrink(8.0);
     painter.rect_filled(
         frame,
-        8.0,
-        ui.visuals().extreme_bg_color.gamma_multiply(0.55),
+        10.0,
+        ui.visuals().extreme_bg_color.gamma_multiply(0.8),
+    );
+    painter.rect_stroke(
+        frame,
+        10.0,
+        egui::Stroke::new(1.0, ui.visuals().widgets.inactive.bg_stroke.color),
+        egui::StrokeKind::Outside,
     );
 
     let Some(graph) = state.graph() else {
@@ -167,6 +174,12 @@ pub fn render_graph_snapshot(
         .iter()
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
+    let hovered_node_id = response.hover_pos().and_then(|pointer_pos| {
+        positions
+            .iter()
+            .find(|(_, pos)| pointer_pos.distance(**pos) <= MODULE_NODE_RADIUS + 4.0)
+            .map(|(id, _)| id.clone())
+    });
 
     for edge in &graph.edges {
         let Some(from) = positions.get(edge.from.as_str()) else {
@@ -180,16 +193,19 @@ pub fn render_graph_snapshot(
         let edge_touches_impact =
             impact.contains(edge.from.as_str()) || impact.contains(edge.to.as_str());
         let stroke = if edge_touches_changed {
-            egui::Stroke::new(2.0, egui::Color32::from_rgb(209, 123, 47))
+            egui::Stroke::new(1.8, egui::Color32::from_rgb(235, 149, 58))
         } else if edge_touches_impact {
-            egui::Stroke::new(1.7, egui::Color32::from_rgb(82, 140, 209))
+            egui::Stroke::new(1.5, egui::Color32::from_rgb(107, 160, 224))
         } else {
-            egui::Stroke::new(1.1, egui::Color32::from_gray(100))
+            egui::Stroke::new(
+                0.9,
+                egui::Color32::from_rgba_unmultiplied(125, 138, 158, 135),
+            )
         };
         painter.line_segment([*from, *to], stroke);
     }
 
-    let draw_all_labels = graph.nodes.len() <= 80;
+    let draw_all_labels = graph.nodes.len() <= 24;
     for node in &graph.nodes {
         let Some(position) = positions.get(node.id.as_str()) else {
             continue;
@@ -201,36 +217,97 @@ pub fn render_graph_snapshot(
             .focused_node_id()
             .is_some_and(|focused| focused == node.id);
         let is_highlighted = highlighted.contains(node.id.as_str());
+        let is_hovered = hovered_node_id
+            .as_deref()
+            .is_some_and(|hovered| hovered == node.id);
 
         let fill = if is_changed {
-            egui::Color32::from_rgb(209, 123, 47)
+            egui::Color32::from_rgb(235, 149, 58)
         } else if is_impact {
-            egui::Color32::from_rgb(82, 140, 209)
+            egui::Color32::from_rgb(107, 160, 224)
         } else if is_highlighted {
-            egui::Color32::from_rgb(157, 135, 56)
+            egui::Color32::from_rgb(191, 171, 73)
         } else {
             match node.kind {
-                ArchitectureNodeKind::Module => egui::Color32::from_rgb(71, 93, 121),
-                ArchitectureNodeKind::File => egui::Color32::from_rgb(58, 113, 80),
+                ArchitectureNodeKind::Module => egui::Color32::from_rgb(84, 112, 147),
+                ArchitectureNodeKind::File => egui::Color32::from_rgb(71, 129, 97),
             }
         };
-        let stroke = if is_focused {
-            egui::Stroke::new(2.8, egui::Color32::from_rgb(250, 214, 58))
+        let stroke = if is_focused || is_hovered {
+            egui::Stroke::new(2.2, egui::Color32::from_rgb(248, 222, 84))
         } else {
-            egui::Stroke::new(1.0, egui::Color32::from_gray(24))
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(24, 29, 35))
         };
-        painter.circle_filled(*position, NODE_RADIUS, fill);
-        painter.circle_stroke(*position, NODE_RADIUS, stroke);
+        match node.kind {
+            ArchitectureNodeKind::Module => {
+                painter.circle_filled(*position, MODULE_NODE_RADIUS, fill);
+                painter.circle_stroke(*position, MODULE_NODE_RADIUS, stroke);
+            }
+            ArchitectureNodeKind::File => {
+                let rect = egui::Rect::from_center_size(*position, FILE_NODE_SIZE);
+                painter.rect_filled(rect, 4.0, fill);
+                painter.rect_stroke(rect, 4.0, stroke, egui::StrokeKind::Outside);
+            }
+        }
 
-        if draw_all_labels || is_changed || is_impact || is_focused {
+        if draw_all_labels || is_changed || is_impact || is_focused || is_hovered {
             painter.text(
-                *position + egui::vec2(0.0, NODE_RADIUS + 4.0),
+                *position + egui::vec2(0.0, MODULE_NODE_RADIUS + 5.0),
                 egui::Align2::CENTER_TOP,
                 clipped_label(&node.display_label, LABEL_MAX_CHARS),
-                egui::FontId::proportional(10.0),
+                egui::FontId::proportional(11.0),
                 ui.visuals().strong_text_color(),
             );
         }
+    }
+
+    render_legend(ui, &painter, frame);
+
+    if let Some(hovered_node_id) = hovered_node_id
+        && let Some(node) = graph.nodes.iter().find(|node| node.id == hovered_node_id)
+    {
+        let kind = match node.kind {
+            ArchitectureNodeKind::Module => "module",
+            ArchitectureNodeKind::File => "file",
+        };
+        let hint = format!("{kind}: {}", node.display_label);
+        painter.text(
+            frame.left_top() + egui::vec2(16.0, 16.0),
+            egui::Align2::LEFT_TOP,
+            clipped_label(&hint, 48),
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_rgb(220, 228, 241),
+        );
+    }
+}
+
+fn render_legend(ui: &egui::Ui, painter: &egui::Painter, frame: egui::Rect) {
+    let origin = frame.right_top() + egui::vec2(-180.0, 12.0);
+    let bg = egui::Rect::from_min_size(origin, egui::vec2(168.0, 62.0));
+    painter.rect_filled(bg, 8.0, ui.visuals().faint_bg_color.gamma_multiply(0.9));
+    painter.rect_stroke(
+        bg,
+        8.0,
+        egui::Stroke::new(1.0, ui.visuals().widgets.inactive.bg_stroke.color),
+        egui::StrokeKind::Outside,
+    );
+
+    let items = [
+        ("Module", egui::Color32::from_rgb(84, 112, 147)),
+        ("File", egui::Color32::from_rgb(71, 129, 97)),
+        ("Changed", egui::Color32::from_rgb(235, 149, 58)),
+        ("Impact", egui::Color32::from_rgb(107, 160, 224)),
+    ];
+    for (index, (label, color)) in items.iter().enumerate() {
+        let y = bg.top() + 12.0 + (index as f32 * 12.5);
+        painter.circle_filled(egui::pos2(bg.left() + 10.0, y), 3.8, *color);
+        painter.text(
+            egui::pos2(bg.left() + 19.0, y),
+            egui::Align2::LEFT_CENTER,
+            *label,
+            egui::FontId::proportional(10.0),
+            ui.visuals().text_color(),
+        );
     }
 }
 

@@ -18,6 +18,7 @@ Current execution board for maintenance work.
 
 ## Recently completed
 
+- [x] Polished native `studio` UI with themed card layout, improved chat/canvas readability, and cleaner graph legend/hover presentation (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-19).
 - [x] Added read-only canvas graph rendering (node/edge visuals) with changed/impact styling in `src/studio/canvas.rs` and wired it into the studio canvas pane (2026-02-19).
 - [x] Added changed-node highlight with optional 1-hop impact overlay toggle and annotations in `studio` graph refresh flow (`src/studio/mod.rs`) with diff/overlay tests (2026-02-19).
 - [x] Implemented canvas operation reducer (`SetGraph`, `HighlightNodes`, `FocusNode`, `AddAnnotation`, `ClearAnnotations`) in `src/studio/canvas.rs`, wired into studio state updates with reducer tests (2026-02-19).

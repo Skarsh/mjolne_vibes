@@ -194,6 +194,7 @@ struct StudioApp {
     impact_node_ids: Vec<String>,
     impact_overlay_enabled: bool,
     turn_summaries: Vec<CanvasTurnSummary>,
+    theme_applied: bool,
     turn_in_flight: bool,
     runtime_disconnected: bool,
     graph_watch_disconnected: bool,
@@ -226,10 +227,136 @@ impl StudioApp {
             impact_node_ids: Vec::new(),
             impact_overlay_enabled: false,
             turn_summaries: Vec::new(),
+            theme_applied: false,
             turn_in_flight: false,
             runtime_disconnected: false,
             graph_watch_disconnected: false,
         }
+    }
+
+    fn ensure_theme(&mut self, ctx: &egui::Context) {
+        if self.theme_applied {
+            return;
+        }
+
+        let mut style = (*ctx.style()).clone();
+        style.spacing.item_spacing = egui::vec2(10.0, 10.0);
+        style.spacing.button_padding = egui::vec2(12.0, 8.0);
+        style.spacing.interact_size = egui::vec2(44.0, 30.0);
+        style.spacing.indent = 16.0;
+        style.spacing.window_margin = egui::Margin::symmetric(14, 12);
+        style.spacing.menu_margin = egui::Margin::symmetric(10, 8);
+        style.spacing.scroll = egui::style::ScrollStyle::floating();
+
+        style.text_styles.insert(
+            egui::TextStyle::Heading,
+            egui::FontId::new(24.0, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Button,
+            egui::FontId::new(15.0, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Body,
+            egui::FontId::new(14.0, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Small,
+            egui::FontId::new(12.0, egui::FontFamily::Proportional),
+        );
+        style.text_styles.insert(
+            egui::TextStyle::Monospace,
+            egui::FontId::new(12.0, egui::FontFamily::Monospace),
+        );
+
+        let mut visuals = egui::Visuals::dark();
+        visuals.panel_fill = egui::Color32::from_rgb(20, 23, 29);
+        visuals.extreme_bg_color = egui::Color32::from_rgb(13, 16, 20);
+        visuals.faint_bg_color = egui::Color32::from_rgb(33, 39, 48);
+        visuals.code_bg_color = egui::Color32::from_rgb(16, 20, 26);
+        visuals.window_fill = egui::Color32::from_rgb(18, 22, 28);
+        visuals.window_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(54, 65, 80));
+        visuals.menu_corner_radius = 12.into();
+        visuals.window_corner_radius = 12.into();
+        visuals.selection.bg_fill = egui::Color32::from_rgb(60, 103, 167);
+        visuals.widgets.noninteractive.corner_radius = 10.into();
+        visuals.widgets.inactive.corner_radius = 10.into();
+        visuals.widgets.hovered.corner_radius = 10.into();
+        visuals.widgets.active.corner_radius = 10.into();
+        visuals.widgets.open.corner_radius = 10.into();
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(29, 36, 45);
+        visuals.widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(24, 30, 39);
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(45, 57, 73);
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(54, 78, 111);
+        visuals.widgets.inactive.bg_stroke =
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(57, 68, 86));
+        visuals.widgets.hovered.bg_stroke =
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(84, 104, 131));
+        visuals.widgets.active.bg_stroke =
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(101, 131, 174));
+        visuals.hyperlink_color = egui::Color32::from_rgb(118, 183, 255);
+        visuals.warn_fg_color = egui::Color32::from_rgb(241, 179, 61);
+        visuals.error_fg_color = egui::Color32::from_rgb(231, 92, 92);
+        style.visuals = visuals;
+
+        ctx.set_style(style);
+        self.theme_applied = true;
+    }
+
+    fn card_frame(ui: &egui::Ui) -> egui::Frame {
+        egui::Frame::new()
+            .fill(ui.visuals().faint_bg_color.gamma_multiply(0.35))
+            .stroke(egui::Stroke::new(
+                1.0,
+                ui.visuals()
+                    .widgets
+                    .inactive
+                    .bg_stroke
+                    .color
+                    .gamma_multiply(0.8),
+            ))
+            .corner_radius(12)
+            .inner_margin(egui::Margin::symmetric(12, 10))
+    }
+
+    fn render_top_bar(&self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("mjolne_vibes studio")
+                    .heading()
+                    .strong()
+                    .color(egui::Color32::from_rgb(228, 235, 245)),
+            );
+            ui.add_space(12.0);
+            let status_color = if self.turn_in_flight {
+                egui::Color32::from_rgb(241, 179, 61)
+            } else if self.runtime_disconnected {
+                egui::Color32::from_rgb(227, 92, 92)
+            } else {
+                egui::Color32::from_rgb(94, 192, 131)
+            };
+            ui.colored_label(
+                status_color,
+                if self.turn_in_flight {
+                    "Running"
+                } else if self.runtime_disconnected {
+                    "Disconnected"
+                } else {
+                    "Ready"
+                },
+            );
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.label(
+                    egui::RichText::new(format!(
+                        "{} / {}",
+                        self.settings.model_provider, self.settings.model
+                    ))
+                    .small()
+                    .monospace(),
+                );
+            });
+        });
     }
 
     fn drain_events(&mut self) {
@@ -414,141 +541,208 @@ impl StudioApp {
     }
 
     fn render_chat_pane(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Chat");
-        ui.label(format!(
-            "Provider: {} | Model: {}",
-            self.settings.model_provider, self.settings.model
-        ));
-        ui.label(format!("Workspace: {}", self.workspace_root.display()));
-        ui.separator();
+        ui.label(egui::RichText::new("Chat").heading().strong());
 
-        egui::ScrollArea::vertical()
-            .stick_to_bottom(true)
-            .max_height((ui.available_height() - 220.0).max(160.0))
-            .show(ui, |ui| {
-                for entry in &self.chat_history {
-                    let speaker_style = match entry.speaker {
-                        ChatSpeaker::User => egui::RichText::new(entry.speaker.label()).strong(),
-                        ChatSpeaker::Assistant => egui::RichText::new(entry.speaker.label())
-                            .color(egui::Color32::from_rgb(26, 103, 64))
-                            .strong(),
-                        ChatSpeaker::System => egui::RichText::new(entry.speaker.label())
-                            .color(egui::Color32::from_rgb(140, 84, 0))
-                            .strong(),
-                    };
-                    ui.label(speaker_style);
-                    ui.label(&entry.text);
-                    ui.add_space(8.0);
+        Self::card_frame(ui).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(
+                    egui::RichText::new(format!("Provider: {}", self.settings.model_provider))
+                        .small(),
+                );
+                ui.separator();
+                ui.label(egui::RichText::new(format!("Model: {}", self.settings.model)).small());
+            });
+            ui.label(
+                egui::RichText::new(format!("Workspace: {}", self.workspace_root.display()))
+                    .small()
+                    .monospace(),
+            );
+        });
+
+        Self::card_frame(ui).show(ui, |ui| {
+            ui.label(egui::RichText::new("Conversation").strong().small());
+            ui.add_space(2.0);
+            egui::ScrollArea::vertical()
+                .stick_to_bottom(true)
+                .max_height((ui.available_height() - 260.0).max(180.0))
+                .show(ui, |ui| {
+                    for entry in &self.chat_history {
+                        self.render_chat_entry(ui, entry);
+                    }
+                });
+        });
+
+        Self::card_frame(ui).show(ui, |ui| {
+            ui.label(egui::RichText::new("Prompt").strong().small());
+            ui.add(
+                egui::TextEdit::multiline(&mut self.input_buffer)
+                    .hint_text("Ask the agent...")
+                    .desired_rows(4),
+            );
+
+            let can_send = !self.turn_in_flight
+                && !self.runtime_disconnected
+                && !self.input_buffer.trim().is_empty();
+            ui.horizontal(|ui| {
+                if ui
+                    .add_enabled(
+                        can_send,
+                        egui::Button::new("Send").min_size(egui::vec2(120.0, 0.0)),
+                    )
+                    .clicked()
+                {
+                    self.submit_prompt();
+                }
+                if self.turn_in_flight {
+                    ui.label(egui::RichText::new("Turn running...").small());
+                }
+                if self.runtime_disconnected {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(227, 92, 92),
+                        "Runtime worker is disconnected.",
+                    );
                 }
             });
-
-        ui.separator();
-        ui.label("Prompt");
-        ui.add(
-            egui::TextEdit::multiline(&mut self.input_buffer)
-                .hint_text("Ask the agent...")
-                .desired_rows(4),
-        );
-
-        let can_send = !self.turn_in_flight
-            && !self.runtime_disconnected
-            && !self.input_buffer.trim().is_empty();
-        if ui
-            .add_enabled(can_send, egui::Button::new("Send"))
-            .clicked()
-        {
-            self.submit_prompt();
-        }
-
-        if self.turn_in_flight {
-            ui.label("Turn running...");
-        }
-        if self.runtime_disconnected {
-            ui.colored_label(
-                egui::Color32::from_rgb(173, 33, 33),
-                "Runtime worker is disconnected.",
-            );
-        }
+        });
     }
 
     fn render_canvas_pane(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Canvas");
-        ui.label(format!("Status: {}", self.canvas_status));
-        if let Some(graph) = self.canvas.graph() {
-            let revision = graph.revision;
-            let node_count = graph.nodes.len();
-            let edge_count = graph.edges.len();
-            ui.label(format!("Graph revision: {revision}"));
-            ui.label(format!("Graph nodes: {node_count}"));
-            ui.label(format!("Graph edges: {edge_count}"));
-            if let Some(trigger) = &self.graph_last_trigger {
-                ui.label(format!("Last graph trigger: {trigger}"));
-            }
-        } else {
-            ui.label("Graph revision: pending initial refresh...");
-        }
-        if ui
-            .checkbox(
-                &mut self.impact_overlay_enabled,
-                "Show 1-hop impact overlay",
-            )
-            .changed()
-        {
-            self.apply_graph_visualization();
-        }
-        ui.label(format!("Changed nodes: {}", self.changed_node_ids.len()));
-        if self.impact_overlay_enabled {
-            ui.label(format!(
-                "1-hop impact nodes: {}",
-                self.impact_node_ids.len()
-            ));
-        } else {
-            ui.label("1-hop impact nodes: hidden");
-        }
-        ui.label(format!(
-            "Highlighted nodes: {}",
-            self.canvas.highlighted_node_ids().len()
-        ));
-        if let Some(focused_node) = self.canvas.focused_node_id() {
-            ui.label(format!("Focused node: {focused_node}"));
-        } else {
-            ui.label("Focused node: none");
-        }
-        ui.label(format!("Annotations: {}", self.canvas.annotations().len()));
-        for annotation in self.canvas.annotations() {
-            if let Some(node_id) = &annotation.node_id {
-                ui.label(format!("- {} ({node_id})", annotation.text));
-            } else {
-                ui.label(format!("- {}", annotation.text));
-            }
-        }
-        ui.separator();
-        ui.label(egui::RichText::new("Graph View").strong());
-        render_graph_snapshot(
-            ui,
-            &self.canvas,
-            &self.changed_node_ids,
-            &self.impact_node_ids,
-            self.impact_overlay_enabled,
-        );
-        ui.separator();
+        ui.label(egui::RichText::new("Canvas").heading().strong());
 
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        Self::card_frame(ui).show(ui, |ui| {
+            ui.label(
+                egui::RichText::new(format!("Status: {}", self.canvas_status))
+                    .small()
+                    .strong(),
+            );
+            ui.horizontal_wrapped(|ui| {
+                let revision = self.canvas.graph().map(|graph| graph.revision);
+                let node_count = self.canvas.graph().map_or(0, |graph| graph.nodes.len());
+                let edge_count = self.canvas.graph().map_or(0, |graph| graph.edges.len());
+                ui.label(egui::RichText::new(format!("rev {}", revision.unwrap_or(0))).small());
+                ui.separator();
+                ui.label(egui::RichText::new(format!("{node_count} nodes")).small());
+                ui.separator();
+                ui.label(egui::RichText::new(format!("{edge_count} edges")).small());
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!("changed {}", self.changed_node_ids.len())).small(),
+                );
+                ui.separator();
+                ui.label(
+                    egui::RichText::new(format!(
+                        "impact {}",
+                        if self.impact_overlay_enabled {
+                            self.impact_node_ids.len().to_string()
+                        } else {
+                            "hidden".to_owned()
+                        }
+                    ))
+                    .small(),
+                );
+            });
+            if let Some(trigger) = &self.graph_last_trigger {
+                ui.label(egui::RichText::new(format!("Last trigger: {trigger}")).small());
+            }
+            if ui
+                .checkbox(
+                    &mut self.impact_overlay_enabled,
+                    "Show 1-hop impact overlay",
+                )
+                .changed()
+            {
+                self.apply_graph_visualization();
+            }
+        });
+
+        Self::card_frame(ui).show(ui, |ui| {
+            ui.label(egui::RichText::new("Graph View").strong().small());
+            render_graph_snapshot(
+                ui,
+                &self.canvas,
+                &self.changed_node_ids,
+                &self.impact_node_ids,
+                self.impact_overlay_enabled,
+            );
+        });
+
+        if !self.canvas.annotations().is_empty() {
+            Self::card_frame(ui).show(ui, |ui| {
+                ui.label(egui::RichText::new("Annotations").strong().small());
+                for annotation in self.canvas.annotations() {
+                    if let Some(node_id) = &annotation.node_id {
+                        ui.label(format!("- {} ({node_id})", annotation.text));
+                    } else {
+                        ui.label(format!("- {}", annotation.text));
+                    }
+                }
+            });
+        }
+
+        Self::card_frame(ui).show(ui, |ui| {
+            ui.label(egui::RichText::new("Recent Turns").strong().small());
             if self.turn_summaries.is_empty() {
-                ui.label("No turn summaries yet.");
+                ui.label(egui::RichText::new("No turn summaries yet.").small());
                 return;
             }
 
-            for summary in self.turn_summaries.iter().rev() {
-                ui.group(|ui| {
-                    ui.label(egui::RichText::new("Turn").strong());
-                    ui.label(format!("User: {}", summary.user_message));
-                    ui.label(format!("Assistant: {}", summary.assistant_preview));
-                    ui.label(format!("Tool calls: {}", summary.tool_call_count));
+            egui::ScrollArea::vertical()
+                .max_height((ui.available_height() - 200.0).max(120.0))
+                .show(ui, |ui| {
+                    for summary in self.turn_summaries.iter().rev() {
+                        egui::Frame::new()
+                            .fill(ui.visuals().extreme_bg_color.gamma_multiply(0.8))
+                            .corner_radius(8)
+                            .inner_margin(egui::Margin::symmetric(10, 8))
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new("Turn").strong().small());
+                                ui.label(format!("User: {}", summary.user_message));
+                                ui.label(format!("Assistant: {}", summary.assistant_preview));
+                                ui.label(
+                                    egui::RichText::new(format!(
+                                        "Tool calls: {}",
+                                        summary.tool_call_count
+                                    ))
+                                    .small(),
+                                );
+                            });
+                        ui.add_space(6.0);
+                    }
                 });
-                ui.add_space(6.0);
-            }
         });
+    }
+
+    fn render_chat_entry(&self, ui: &mut egui::Ui, entry: &ChatEntry) {
+        let (fill, accent) = match entry.speaker {
+            ChatSpeaker::User => (
+                egui::Color32::from_rgb(34, 52, 78),
+                egui::Color32::from_rgb(130, 170, 232),
+            ),
+            ChatSpeaker::Assistant => (
+                egui::Color32::from_rgb(34, 66, 54),
+                egui::Color32::from_rgb(118, 212, 163),
+            ),
+            ChatSpeaker::System => (
+                egui::Color32::from_rgb(72, 58, 29),
+                egui::Color32::from_rgb(230, 188, 84),
+            ),
+        };
+
+        egui::Frame::new()
+            .fill(fill.gamma_multiply(0.7))
+            .stroke(egui::Stroke::new(1.0, accent.gamma_multiply(0.65)))
+            .corner_radius(9)
+            .inner_margin(egui::Margin::symmetric(10, 8))
+            .show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new(entry.speaker.label())
+                        .strong()
+                        .small()
+                        .color(accent),
+                );
+                ui.label(&entry.text);
+            });
+        ui.add_space(6.0);
     }
 }
 
@@ -656,15 +850,33 @@ impl Drop for StudioApp {
 
 impl eframe::App for StudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.ensure_theme(ctx);
         self.drain_events();
         self.drain_graph_updates();
 
+        egui::TopBottomPanel::top("studio_header")
+            .exact_height(44.0)
+            .frame(
+                egui::Frame::new()
+                    .fill(ctx.style().visuals.panel_fill.gamma_multiply(1.08))
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        ctx.style().visuals.widgets.inactive.bg_stroke.color,
+                    ))
+                    .inner_margin(egui::Margin::symmetric(12, 8)),
+            )
+            .show(ctx, |ui| self.render_top_bar(ui));
+
         egui::SidePanel::left("studio_chat_pane")
             .resizable(true)
-            .default_width(520.0)
+            .default_width(420.0)
+            .min_width(320.0)
+            .frame(egui::Frame::side_top_panel(&ctx.style()))
             .show(ctx, |ui| self.render_chat_pane(ui));
 
-        egui::CentralPanel::default().show(ctx, |ui| self.render_canvas_pane(ui));
+        egui::CentralPanel::default()
+            .frame(egui::Frame::central_panel(&ctx.style()))
+            .show(ctx, |ui| self.render_canvas_pane(ui));
 
         ctx.request_repaint_after(Duration::from_millis(120));
     }
