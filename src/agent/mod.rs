@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, anyhow};
 use serde::Serialize;
-use serde_json::Value;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 use tracing::{info, warn};
 
+use crate::answer_format::{StructuredAnswerFormat, answer_matches_structured_format};
 use crate::config::AgentSettings;
 use crate::model::client::{
     ChatResponse, ModelClient, ModelMessage, ModelToolCall, ModelToolDefinition,
@@ -74,6 +74,13 @@ impl RequestedAnswerFormat {
         match self {
             Self::JsonObject => "json_object",
             Self::MarkdownBullets => "markdown_bullets",
+        }
+    }
+
+    fn as_structured(self) -> StructuredAnswerFormat {
+        match self {
+            Self::JsonObject => StructuredAnswerFormat::JsonObject,
+            Self::MarkdownBullets => StructuredAnswerFormat::MarkdownBullets,
         }
     }
 }
@@ -482,18 +489,7 @@ fn detect_requested_answer_format(message: &str) -> Option<RequestedAnswerFormat
 }
 
 fn answer_matches_requested_format(format: RequestedAnswerFormat, answer: &str) -> bool {
-    match format {
-        RequestedAnswerFormat::JsonObject => {
-            matches!(serde_json::from_str::<Value>(answer), Ok(Value::Object(_)))
-        }
-        RequestedAnswerFormat::MarkdownBullets => {
-            let lines: Vec<_> = answer
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .collect();
-            !lines.is_empty() && lines.iter().all(|line| line.trim_start().starts_with("- "))
-        }
-    }
+    answer_matches_structured_format(format.as_structured(), answer)
 }
 
 fn build_format_repair_prompt(format: RequestedAnswerFormat) -> &'static str {

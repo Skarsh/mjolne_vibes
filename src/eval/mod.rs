@@ -8,6 +8,9 @@ use anyhow::{Context, Result, anyhow, ensure};
 use serde::Deserialize;
 
 use crate::agent::{ChatTurnOutcome, run_chat_turn};
+use crate::answer_format::{
+    StructuredAnswerFormat, StructuredAnswerFormatError, validate_structured_answer_format,
+};
 use crate::config::AgentSettings;
 use crate::tools::tool_definitions;
 
@@ -357,54 +360,59 @@ fn check_answer_format(case: &EvalCase, answer: &str) -> EvalCheckResult {
                 }
             }
         }
-        AnswerFormat::JsonObject => match serde_json::from_str::<serde_json::Value>(answer) {
-            Ok(serde_json::Value::Object(_)) => EvalCheckResult {
-                name: format_name,
-                passed: true,
-                detail: "answer parsed as JSON object".to_owned(),
-            },
-            Ok(_) => EvalCheckResult {
-                name: format_name,
-                passed: false,
-                detail: "answer is JSON but not an object".to_owned(),
-            },
-            Err(error) => EvalCheckResult {
-                name: format_name,
-                passed: false,
-                detail: format!("answer is not valid JSON object: {error}"),
-            },
-        },
-        AnswerFormat::MarkdownBullets => {
-            let lines: Vec<_> = answer
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .collect();
-            if lines.is_empty() {
-                return EvalCheckResult {
+        AnswerFormat::JsonObject => {
+            match validate_structured_answer_format(StructuredAnswerFormat::JsonObject, answer) {
+                Ok(()) => EvalCheckResult {
+                    name: format_name,
+                    passed: true,
+                    detail: "answer parsed as JSON object".to_owned(),
+                },
+                Err(StructuredAnswerFormatError::JsonNotObject) => EvalCheckResult {
+                    name: format_name,
+                    passed: false,
+                    detail: "answer is JSON but not an object".to_owned(),
+                },
+                Err(StructuredAnswerFormatError::JsonParseError(error)) => EvalCheckResult {
+                    name: format_name,
+                    passed: false,
+                    detail: format!("answer is not valid JSON object: {error}"),
+                },
+                Err(StructuredAnswerFormatError::EmptyAnswer) => EvalCheckResult {
                     name: format_name,
                     passed: false,
                     detail: "answer is empty".to_owned(),
-                };
+                },
+                Err(StructuredAnswerFormatError::NonBulletLines(_)) => EvalCheckResult {
+                    name: format_name,
+                    passed: false,
+                    detail: "internal format validation mismatch for JSON object".to_owned(),
+                },
             }
-
-            let invalid: Vec<_> = lines
-                .iter()
-                .filter(|line| !line.trim_start().starts_with("- "))
-                .map(|line| line.trim().to_owned())
-                .collect();
-
-            if invalid.is_empty() {
-                EvalCheckResult {
+        }
+        AnswerFormat::MarkdownBullets => {
+            match validate_structured_answer_format(StructuredAnswerFormat::MarkdownBullets, answer)
+            {
+                Ok(()) => EvalCheckResult {
                     name: format_name,
                     passed: true,
                     detail: "answer uses markdown bullet lines".to_owned(),
-                }
-            } else {
-                EvalCheckResult {
+                },
+                Err(StructuredAnswerFormatError::EmptyAnswer) => EvalCheckResult {
+                    name: format_name,
+                    passed: false,
+                    detail: "answer is empty".to_owned(),
+                },
+                Err(StructuredAnswerFormatError::NonBulletLines(invalid)) => EvalCheckResult {
                     name: format_name,
                     passed: false,
                     detail: format!("non-bullet lines detected: {}", invalid.join(" | ")),
-                }
+                },
+                Err(StructuredAnswerFormatError::JsonNotObject)
+                | Err(StructuredAnswerFormatError::JsonParseError(_)) => EvalCheckResult {
+                    name: format_name,
+                    passed: false,
+                    detail: "internal format validation mismatch for markdown bullets".to_owned(),
+                },
             }
         }
     }

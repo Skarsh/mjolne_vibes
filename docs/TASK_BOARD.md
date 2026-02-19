@@ -22,6 +22,7 @@ Current execution board for maintenance work.
 - [x] Implemented file-backed `search_notes` behavior with ranking and tests (2026-02-19).
 - [x] Replaced HTTP substring-based error classification with typed turn error kinds to preserve status mapping robustness (2026-02-19).
 - [x] Centralized tool metadata (signature/description/schema) in `tools` and removed duplicated agent definitions (2026-02-19).
+- [x] Unified answer-format validation logic across runtime and eval via shared module (2026-02-19).
 
 ## Board rules
 
