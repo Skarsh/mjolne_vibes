@@ -88,24 +88,37 @@ fn error_details(error: &anyhow::Error) -> String {
 }
 
 fn status_code_for_error(details: &str) -> StatusCode {
-    if details.contains("input exceeds configured character limit")
-        || details.contains("output exceeds configured character limit")
-        || details.contains("tool call budget exceeded")
-        || details.contains("max_steps")
-        || details.contains("policy blocked")
-        || details.contains("unknown tool")
-        || details.contains("invalid tool arguments")
-        || details.contains("AGENT_MAX_INPUT_CHARS")
-        || details.contains("AGENT_MAX_OUTPUT_CHARS")
-    {
+    let normalized = details.to_ascii_lowercase();
+
+    if contains_any(
+        &normalized,
+        &[
+            "policy blocked tool",
+            "invalid tool arguments for",
+            "unknown tool `",
+            "agent_max_input_chars",
+            "agent_max_output_chars",
+            "agent_max_tool_calls",
+            "agent_max_tool_calls_per_step",
+            "agent_max_consecutive_tool_steps",
+            "tool-call cap exceeded",
+            "tool-calls-per-step cap exceeded",
+            "consecutive tool-step cap exceeded",
+            "max_steps=",
+        ],
+    ) {
         return StatusCode::BAD_REQUEST;
     }
 
-    if details.contains("model chat failed") || details.contains("tool dispatch failed") {
+    if contains_any(&normalized, &["model chat failed", "upstream tool failure"]) {
         return StatusCode::BAD_GATEWAY;
     }
 
     StatusCode::INTERNAL_SERVER_ERROR
+}
+
+fn contains_any(details: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| details.contains(needle))
 }
 
 #[cfg(test)]
@@ -116,8 +129,12 @@ mod tests {
 
     #[test]
     fn status_code_classifies_validation_and_policy_errors() {
-        let input_error = anyhow::anyhow!("input exceeds configured character limit (4000 chars)");
-        let policy_error = anyhow::anyhow!("tool dispatch failed for `fetch_url`: policy blocked");
+        let input_error = anyhow::anyhow!(
+            "user input exceeded AGENT_MAX_INPUT_CHARS limit: 4101 chars (max 4000)"
+        );
+        let policy_error = anyhow::anyhow!(
+            "failed while appending tool results at step 1: policy blocked tool `fetch_url`: url host `evil.com` is not in allowlist"
+        );
         assert_eq!(
             status_code_for_error(&error_details(&input_error)),
             StatusCode::BAD_REQUEST
@@ -131,16 +148,24 @@ mod tests {
     #[test]
     fn status_code_classifies_upstream_errors() {
         let model_error = anyhow::anyhow!("model chat failed for provider ollama at step 1");
+        let tool_error = anyhow::anyhow!(
+            "failed while appending tool results at step 1: upstream tool failure for `fetch_url` after 2 attempts: timed out after 5000ms"
+        );
         assert_eq!(
             status_code_for_error(&error_details(&model_error)),
+            StatusCode::BAD_GATEWAY
+        );
+        assert_eq!(
+            status_code_for_error(&error_details(&tool_error)),
             StatusCode::BAD_GATEWAY
         );
     }
 
     #[test]
-    fn status_code_uses_error_chain_for_wrapped_validation_errors() {
-        let wrapped = anyhow::anyhow!("chat turn failed")
-            .context("user input exceeded AGENT_MAX_INPUT_CHARS limit: 4101 chars (max 4000)");
+    fn status_code_uses_error_chain_for_wrapped_guardrail_errors() {
+        let wrapped = anyhow::anyhow!("chat turn failed").context(
+            "tool-calls-per-step cap exceeded at step 2: requested 8, limit 4 (AGENT_MAX_TOOL_CALLS_PER_STEP)",
+        );
         assert_eq!(
             status_code_for_error(&error_details(&wrapped)),
             StatusCode::BAD_REQUEST

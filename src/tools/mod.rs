@@ -1,7 +1,9 @@
 use std::error::Error as StdError;
 use std::fs;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use reqwest::Url;
 use reqwest::header::{CONTENT_TYPE, HeaderMap};
@@ -447,20 +449,6 @@ fn run_save_note(
         tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
         reason: "title must include at least one alphanumeric character".to_owned(),
     })?;
-    let note_filename = format!("{note_slug}.md");
-    let note_path = notes_dir.join(&note_filename);
-    let is_overwrite = note_path.exists();
-
-    if is_overwrite && !save_note_allow_overwrite {
-        return Err(ToolDispatchError::PolicyViolation {
-            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-            reason: format!(
-                "refusing to overwrite existing note `{}` without confirmation; set SAVE_NOTE_ALLOW_OVERWRITE=true to confirm overwrite",
-                note_path.display()
-            ),
-        });
-    }
-
     fs::create_dir_all(notes_dir).map_err(|error| ToolDispatchError::ExecutionFailed {
         tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
         reason: format!(
@@ -469,18 +457,114 @@ fn run_save_note(
         ),
     })?;
 
+    let note_filename = format!("{note_slug}.md");
+    let note_path = notes_dir.join(&note_filename);
+    let existing_metadata = fs::symlink_metadata(&note_path)
+        .map(Some)
+        .or_else(|error| match error.kind() {
+            ErrorKind::NotFound => Ok(None),
+            _ => Err(error),
+        });
+    let existing_metadata =
+        existing_metadata.map_err(|error| ToolDispatchError::ExecutionFailed {
+            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
+            reason: format!(
+                "failed to inspect existing note `{}`: {error}",
+                note_path.display()
+            ),
+        })?;
+
+    if let Some(metadata) = existing_metadata.as_ref() {
+        if metadata.file_type().is_symlink() {
+            return Err(ToolDispatchError::PolicyViolation {
+                tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
+                reason: format!(
+                    "refusing to write note `{}` because target is a symlink",
+                    note_path.display()
+                ),
+            });
+        }
+
+        if !metadata.is_file() {
+            return Err(ToolDispatchError::PolicyViolation {
+                tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
+                reason: format!(
+                    "refusing to overwrite non-file note path `{}`",
+                    note_path.display()
+                ),
+            });
+        }
+
+        if !save_note_allow_overwrite {
+            return Err(ToolDispatchError::PolicyViolation {
+                tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
+                reason: format!(
+                    "refusing to overwrite existing note `{}` without confirmation; set SAVE_NOTE_ALLOW_OVERWRITE=true to confirm overwrite",
+                    note_path.display()
+                ),
+            });
+        }
+    }
+
     let file_content = format!("# {title}\n\n{}\n", args.body);
-    fs::write(&note_path, &file_content).map_err(|error| ToolDispatchError::ExecutionFailed {
-        tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
-        reason: format!("failed to write note `{}`: {error}", note_path.display()),
+    let temp_path = create_temp_note_path(notes_dir, &note_slug);
+    write_new_file(&temp_path, &file_content).map_err(|error| {
+        ToolDispatchError::ExecutionFailed {
+            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
+            reason: format!(
+                "failed to write temp note file `{}`: {error}",
+                temp_path.display()
+            ),
+        }
+    })?;
+
+    if existing_metadata.is_some() {
+        fs::remove_file(&note_path).map_err(|error| ToolDispatchError::ExecutionFailed {
+            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
+            reason: format!(
+                "failed to remove existing note `{}` before overwrite: {error}",
+                note_path.display()
+            ),
+        })?;
+    }
+
+    fs::rename(&temp_path, &note_path).map_err(|error| {
+        let _ = fs::remove_file(&temp_path);
+        ToolDispatchError::ExecutionFailed {
+            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
+            reason: format!(
+                "failed to move temp note `{}` into `{}`: {error}",
+                temp_path.display(),
+                note_path.display()
+            ),
+        }
     })?;
 
     Ok(json!({
         "title": title,
         "path": note_path.display().to_string(),
         "bytes": file_content.len(),
-        "status": if is_overwrite { "overwritten" } else { "created" }
+        "status": if existing_metadata.is_some() { "overwritten" } else { "created" }
     }))
+}
+
+fn create_temp_note_path(notes_dir: &Path, note_slug: &str) -> PathBuf {
+    let now_ns = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    notes_dir.join(format!(
+        ".tmp-{note_slug}-{}-{now_ns}.mdtmp",
+        std::process::id()
+    ))
+}
+
+fn write_new_file(path: &Path, content: &str) -> std::io::Result<()> {
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(path)?;
+    file.write_all(content.as_bytes())
 }
 
 fn normalize_note_title(title: &str) -> Option<String> {
@@ -723,6 +807,46 @@ mod tests {
         assert!(file_contents.contains("version two"));
 
         cleanup_dir(&runtime.notes_dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn dispatch_save_note_rejects_symlink_note_path() {
+        use std::os::unix::fs::symlink;
+
+        let runtime = test_runtime_config("save_note_symlink_blocked", true);
+        cleanup_dir(&runtime.notes_dir);
+        fs::create_dir_all(&runtime.notes_dir).expect("notes dir should be creatable");
+
+        let target_dir = temp_notes_dir("save_note_symlink_target");
+        cleanup_dir(&target_dir);
+        fs::create_dir_all(&target_dir).expect("target dir should be creatable");
+        let target_file = target_dir.join("outside.md");
+        fs::write(&target_file, "do not overwrite").expect("target file should be writable");
+
+        let symlink_path = runtime.notes_dir.join("daily-note.md");
+        symlink(&target_file, &symlink_path).expect("symlink should be creatable");
+
+        let error = dispatch_tool_call(
+            SAVE_NOTE_TOOL_NAME,
+            json!({
+                "title": "daily note",
+                "body": "new body"
+            }),
+            &runtime,
+        )
+        .expect_err("symlink path should be rejected");
+
+        let ToolDispatchError::PolicyViolation { reason, .. } = error else {
+            panic!("expected policy violation");
+        };
+        assert!(reason.contains("symlink"));
+
+        let unchanged = fs::read_to_string(&target_file).expect("target file should remain");
+        assert_eq!(unchanged, "do not overwrite");
+
+        cleanup_dir(&runtime.notes_dir);
+        cleanup_dir(&target_dir);
     }
 
     #[test]

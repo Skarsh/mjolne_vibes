@@ -12,11 +12,12 @@ use crate::model::client::{
     ChatResponse, ModelClient, ModelMessage, ModelToolCall, ModelToolDefinition,
 };
 use crate::tools::{
-    FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME, ToolRuntimeConfig,
-    dispatch_tool_call, tool_definitions,
+    FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME, ToolDispatchError,
+    ToolRuntimeConfig, dispatch_tool_call, tool_definitions,
 };
 
 const SYSTEM_PROMPT: &str = "You are a concise, reliable Rust AI assistant. Be helpful, truthful, and use tools only when needed for the user's request. Follow the user's requested output format exactly. If they ask for a JSON object, return only a valid JSON object with no markdown fences or extra text. If they ask for markdown bullets, return only bullet lines starting with '- '.";
+const MAX_TRANSIENT_TOOL_ATTEMPTS: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RequestedAnswerFormat {
@@ -302,6 +303,8 @@ impl ChatSession {
                         &text,
                         self.settings.max_output_chars,
                     )?;
+                    // A non-tool model step breaks any consecutive tool-step streak.
+                    consecutive_tool_steps = 0;
 
                     if let Some(format) = requested_format
                         && !answer_matches_requested_format(format, &text)
@@ -648,7 +651,7 @@ async fn append_tool_results(
             tool_timeout_ms,
             tool_runtime,
         )
-        .await;
+        .await?;
         let tool_latency = tool_started_at.elapsed();
 
         enforce_output_char_limit(
@@ -688,41 +691,91 @@ async fn dispatch_tool_call_with_timeout(
     raw_args: serde_json::Value,
     tool_timeout_ms: u64,
     tool_runtime: &ToolRuntimeConfig,
-) -> String {
-    let timeout_result = with_timeout(
-        dispatch_tool_call(tool_name, raw_args, tool_runtime),
-        tool_timeout_ms,
-    )
-    .await;
-    match timeout_result {
-        Ok(Ok(output)) => output.payload.to_string(),
-        Ok(Err(error)) => {
-            warn!(
-                tool_name = %tool_name,
-                tool_call_id = %tool_call_id,
-                error = %error,
-                "tool dispatch failed"
-            );
+) -> Result<String> {
+    for attempt in 1..=MAX_TRANSIENT_TOOL_ATTEMPTS {
+        let timeout_result = with_timeout(
+            dispatch_tool_call(tool_name, raw_args.clone(), tool_runtime),
+            tool_timeout_ms,
+        )
+        .await;
 
-            json!({
-                "error": error.to_string()
-            })
-            .to_string()
-        }
-        Err(()) => {
-            warn!(
-                tool_name = %tool_name,
-                tool_call_id = %tool_call_id,
-                tool_timeout_ms,
-                "tool execution timed out"
-            );
+        match timeout_result {
+            Ok(Ok(output)) => return Ok(output.payload.to_string()),
+            Ok(Err(ToolDispatchError::UnknownTool { tool_name })) => {
+                return Err(anyhow!("unknown tool `{tool_name}`"));
+            }
+            Ok(Err(ToolDispatchError::InvalidArgs { tool_name, reason })) => {
+                return Err(anyhow!(
+                    "invalid tool arguments for `{tool_name}`: {reason}"
+                ));
+            }
+            Ok(Err(ToolDispatchError::PolicyViolation { tool_name, reason })) => {
+                return Err(anyhow!("policy blocked tool `{tool_name}`: {reason}"));
+            }
+            Ok(Err(error @ ToolDispatchError::ExecutionFailed { .. })) => {
+                let should_retry = should_retry_tool_dispatch_error(tool_name, &error);
+                if should_retry && attempt < MAX_TRANSIENT_TOOL_ATTEMPTS {
+                    warn!(
+                        tool_name = %tool_name,
+                        tool_call_id = %tool_call_id,
+                        attempt,
+                        max_attempts = MAX_TRANSIENT_TOOL_ATTEMPTS,
+                        error = %error,
+                        "transient tool execution failure; retrying"
+                    );
+                    continue;
+                }
 
-            json!({
-                "error": format!("tool `{tool_name}` timed out after {tool_timeout_ms}ms")
-            })
-            .to_string()
+                let ToolDispatchError::ExecutionFailed { tool_name, reason } = error else {
+                    unreachable!("non-execution error already handled");
+                };
+
+                if should_retry {
+                    return Err(anyhow!(
+                        "upstream tool failure for `{tool_name}` after {MAX_TRANSIENT_TOOL_ATTEMPTS} attempts: {reason}"
+                    ));
+                }
+
+                return Err(anyhow!("tool execution failed for `{tool_name}`: {reason}"));
+            }
+            Err(()) => {
+                let should_retry = should_retry_tool_timeout(tool_name);
+                if should_retry && attempt < MAX_TRANSIENT_TOOL_ATTEMPTS {
+                    warn!(
+                        tool_name = %tool_name,
+                        tool_call_id = %tool_call_id,
+                        attempt,
+                        max_attempts = MAX_TRANSIENT_TOOL_ATTEMPTS,
+                        tool_timeout_ms,
+                        "transient tool timeout; retrying"
+                    );
+                    continue;
+                }
+
+                if should_retry {
+                    return Err(anyhow!(
+                        "upstream tool failure for `{tool_name}` after {MAX_TRANSIENT_TOOL_ATTEMPTS} attempts: timed out after {tool_timeout_ms}ms"
+                    ));
+                }
+
+                return Err(anyhow!(
+                    "tool `{tool_name}` timed out after {tool_timeout_ms}ms"
+                ));
+            }
         }
     }
+
+    Err(anyhow!(
+        "upstream tool failure for `{tool_name}`: exhausted retry attempts"
+    ))
+}
+
+fn should_retry_tool_timeout(tool_name: &str) -> bool {
+    tool_name == FETCH_URL_TOOL_NAME
+}
+
+fn should_retry_tool_dispatch_error(tool_name: &str, error: &ToolDispatchError) -> bool {
+    tool_name == FETCH_URL_TOOL_NAME && matches!(error, ToolDispatchError::ExecutionFailed { .. })
 }
 
 async fn with_timeout<F, T>(future: F, timeout_ms: u64) -> std::result::Result<T, ()>
@@ -787,11 +840,14 @@ mod tests {
         RequestedAnswerFormat, answer_matches_requested_format, build_model_tool_definitions,
         build_repl_tools_lines, detect_requested_answer_format, enforce_consecutive_tool_step_cap,
         enforce_input_char_limit, enforce_output_char_limit, enforce_tool_call_cap,
-        enforce_tool_calls_per_step_cap, repl_help_lines, with_timeout,
+        enforce_tool_calls_per_step_cap, repl_help_lines, should_retry_tool_dispatch_error,
+        should_retry_tool_timeout, with_timeout,
     };
     use crate::config::{AgentSettings, ModelProvider};
     use crate::model::client::{MessageRole, ModelMessage};
-    use crate::tools::{FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME};
+    use crate::tools::{
+        FETCH_URL_TOOL_NAME, SAVE_NOTE_TOOL_NAME, SEARCH_NOTES_TOOL_NAME, ToolDispatchError,
+    };
 
     #[test]
     fn model_tool_definitions_match_v1_contract() {
@@ -916,6 +972,42 @@ mod tests {
         assert!(!answer_matches_requested_format(
             RequestedAnswerFormat::MarkdownBullets,
             "one\n- two"
+        ));
+    }
+
+    #[test]
+    fn transient_timeout_retry_applies_only_to_fetch_url() {
+        assert!(should_retry_tool_timeout(FETCH_URL_TOOL_NAME));
+        assert!(!should_retry_tool_timeout(SAVE_NOTE_TOOL_NAME));
+        assert!(!should_retry_tool_timeout(SEARCH_NOTES_TOOL_NAME));
+    }
+
+    #[test]
+    fn transient_execution_retry_applies_only_to_fetch_url_execution_failures() {
+        let fetch_exec = ToolDispatchError::ExecutionFailed {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: "network down".to_owned(),
+        };
+        let fetch_policy = ToolDispatchError::PolicyViolation {
+            tool_name: FETCH_URL_TOOL_NAME.to_owned(),
+            reason: "blocked".to_owned(),
+        };
+        let save_exec = ToolDispatchError::ExecutionFailed {
+            tool_name: SAVE_NOTE_TOOL_NAME.to_owned(),
+            reason: "io".to_owned(),
+        };
+
+        assert!(should_retry_tool_dispatch_error(
+            FETCH_URL_TOOL_NAME,
+            &fetch_exec
+        ));
+        assert!(!should_retry_tool_dispatch_error(
+            FETCH_URL_TOOL_NAME,
+            &fetch_policy
+        ));
+        assert!(!should_retry_tool_dispatch_error(
+            SAVE_NOTE_TOOL_NAME,
+            &save_exec
         ));
     }
 
