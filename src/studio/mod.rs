@@ -17,7 +17,7 @@ use crate::graph::watch::{GraphRefreshUpdate, GraphWatchHandle, spawn_graph_watc
 pub mod canvas;
 pub mod events;
 
-use self::canvas::CanvasState;
+use self::canvas::{CanvasState, render_graph_snapshot};
 use self::events::{CanvasOp, StudioCommand, StudioEvent, StudioTurnResult};
 
 const APP_TITLE: &str = "mjolne_vibes studio";
@@ -522,6 +522,15 @@ impl StudioApp {
                 ui.label(format!("- {}", annotation.text));
             }
         }
+        ui.separator();
+        ui.label(egui::RichText::new("Graph View").strong());
+        render_graph_snapshot(
+            ui,
+            &self.canvas,
+            &self.changed_node_ids,
+            &self.impact_node_ids,
+            self.impact_overlay_enabled,
+        );
         ui.separator();
 
         egui::ScrollArea::vertical().show(ui, |ui| {

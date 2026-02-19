@@ -1,6 +1,8 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use crate::graph::ArchitectureGraph;
+use eframe::egui;
+
+use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
 use super::events::CanvasOp;
 
@@ -115,13 +117,227 @@ impl CanvasState {
     }
 }
 
+pub fn render_graph_snapshot(
+    ui: &mut egui::Ui,
+    state: &CanvasState,
+    changed_node_ids: &[String],
+    impact_node_ids: &[String],
+    show_impact_overlay: bool,
+) {
+    const GRAPH_VIEW_HEIGHT: f32 = 300.0;
+    const NODE_RADIUS: f32 = 8.0;
+    const LABEL_MAX_CHARS: usize = 22;
+
+    let desired_size = egui::vec2(ui.available_width().max(320.0), GRAPH_VIEW_HEIGHT);
+    let (response, painter) = ui.allocate_painter(desired_size, egui::Sense::hover());
+    let frame = response.rect.shrink(8.0);
+    painter.rect_filled(
+        frame,
+        8.0,
+        ui.visuals().extreme_bg_color.gamma_multiply(0.55),
+    );
+
+    let Some(graph) = state.graph() else {
+        painter.text(
+            frame.center(),
+            egui::Align2::CENTER_CENTER,
+            "Graph preview pending initial refresh",
+            egui::FontId::proportional(13.0),
+            ui.visuals().weak_text_color(),
+        );
+        return;
+    };
+
+    let graph_rect = frame.shrink2(egui::vec2(24.0, 24.0));
+    let positions = compute_node_positions(graph, graph_rect);
+    let changed = changed_node_ids
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+    let impact = if show_impact_overlay {
+        impact_node_ids
+            .iter()
+            .map(String::as_str)
+            .collect::<BTreeSet<_>>()
+    } else {
+        BTreeSet::new()
+    };
+    let highlighted = state
+        .highlighted_node_ids()
+        .iter()
+        .map(String::as_str)
+        .collect::<BTreeSet<_>>();
+
+    for edge in &graph.edges {
+        let Some(from) = positions.get(edge.from.as_str()) else {
+            continue;
+        };
+        let Some(to) = positions.get(edge.to.as_str()) else {
+            continue;
+        };
+        let edge_touches_changed =
+            changed.contains(edge.from.as_str()) || changed.contains(edge.to.as_str());
+        let edge_touches_impact =
+            impact.contains(edge.from.as_str()) || impact.contains(edge.to.as_str());
+        let stroke = if edge_touches_changed {
+            egui::Stroke::new(2.0, egui::Color32::from_rgb(209, 123, 47))
+        } else if edge_touches_impact {
+            egui::Stroke::new(1.7, egui::Color32::from_rgb(82, 140, 209))
+        } else {
+            egui::Stroke::new(1.1, egui::Color32::from_gray(100))
+        };
+        painter.line_segment([*from, *to], stroke);
+    }
+
+    let draw_all_labels = graph.nodes.len() <= 80;
+    for node in &graph.nodes {
+        let Some(position) = positions.get(node.id.as_str()) else {
+            continue;
+        };
+
+        let is_changed = changed.contains(node.id.as_str());
+        let is_impact = impact.contains(node.id.as_str()) && !is_changed;
+        let is_focused = state
+            .focused_node_id()
+            .is_some_and(|focused| focused == node.id);
+        let is_highlighted = highlighted.contains(node.id.as_str());
+
+        let fill = if is_changed {
+            egui::Color32::from_rgb(209, 123, 47)
+        } else if is_impact {
+            egui::Color32::from_rgb(82, 140, 209)
+        } else if is_highlighted {
+            egui::Color32::from_rgb(157, 135, 56)
+        } else {
+            match node.kind {
+                ArchitectureNodeKind::Module => egui::Color32::from_rgb(71, 93, 121),
+                ArchitectureNodeKind::File => egui::Color32::from_rgb(58, 113, 80),
+            }
+        };
+        let stroke = if is_focused {
+            egui::Stroke::new(2.8, egui::Color32::from_rgb(250, 214, 58))
+        } else {
+            egui::Stroke::new(1.0, egui::Color32::from_gray(24))
+        };
+        painter.circle_filled(*position, NODE_RADIUS, fill);
+        painter.circle_stroke(*position, NODE_RADIUS, stroke);
+
+        if draw_all_labels || is_changed || is_impact || is_focused {
+            painter.text(
+                *position + egui::vec2(0.0, NODE_RADIUS + 4.0),
+                egui::Align2::CENTER_TOP,
+                clipped_label(&node.display_label, LABEL_MAX_CHARS),
+                egui::FontId::proportional(10.0),
+                ui.visuals().strong_text_color(),
+            );
+        }
+    }
+}
+
+fn compute_node_positions(
+    graph: &ArchitectureGraph,
+    bounds: egui::Rect,
+) -> BTreeMap<String, egui::Pos2> {
+    let mut module_nodes = Vec::new();
+    let mut file_nodes = Vec::new();
+    for node in &graph.nodes {
+        match node.kind {
+            ArchitectureNodeKind::Module => module_nodes.push(node),
+            ArchitectureNodeKind::File => file_nodes.push(node),
+        }
+    }
+
+    let mut positions = BTreeMap::new();
+    if module_nodes.is_empty() || file_nodes.is_empty() {
+        let all_nodes = graph.nodes.iter().collect::<Vec<_>>();
+        place_nodes_in_rect(&all_nodes, bounds, &mut positions);
+        return positions;
+    }
+
+    let split_y = bounds.top() + bounds.height() * 0.58;
+    let module_rect = egui::Rect::from_min_max(
+        bounds.left_top(),
+        egui::pos2(bounds.right(), (split_y - 10.0).max(bounds.top())),
+    );
+    let file_rect = egui::Rect::from_min_max(
+        egui::pos2(bounds.left(), (split_y + 10.0).min(bounds.bottom())),
+        bounds.right_bottom(),
+    );
+
+    place_nodes_in_rect(&module_nodes, module_rect, &mut positions);
+    place_nodes_in_rect(&file_nodes, file_rect, &mut positions);
+    positions
+}
+
+fn place_nodes_in_rect(
+    nodes: &[&ArchitectureNode],
+    rect: egui::Rect,
+    positions: &mut BTreeMap<String, egui::Pos2>,
+) {
+    if nodes.is_empty() {
+        return;
+    }
+
+    let columns = if nodes.len() <= 4 {
+        nodes.len()
+    } else {
+        (nodes.len() as f32).sqrt().ceil() as usize
+    }
+    .max(1);
+    let rows = nodes.len().div_ceil(columns);
+    let x_step = if columns == 1 {
+        0.0
+    } else {
+        rect.width() / (columns.saturating_sub(1) as f32)
+    };
+    let y_step = if rows == 1 {
+        0.0
+    } else {
+        rect.height() / (rows.saturating_sub(1) as f32)
+    };
+
+    for (index, node) in nodes.iter().enumerate() {
+        let row = index / columns;
+        let col = index % columns;
+        let x = if columns == 1 {
+            rect.center().x
+        } else {
+            rect.left() + x_step * col as f32
+        };
+        let y = if rows == 1 {
+            rect.center().y
+        } else {
+            rect.top() + y_step * row as f32
+        };
+        positions.insert(node.id.clone(), egui::pos2(x, y));
+    }
+}
+
+fn clipped_label(label: &str, max_chars: usize) -> String {
+    if label.chars().count() <= max_chars {
+        return label.to_owned();
+    }
+
+    let mut clipped = label
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    clipped.push_str("...");
+    clipped
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::UNIX_EPOCH;
 
-    use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
+    use eframe::egui;
 
-    use super::{CanvasOp, CanvasState};
+    use crate::graph::{
+        ArchitectureEdge, ArchitectureEdgeKind, ArchitectureGraph, ArchitectureNode,
+        ArchitectureNodeKind,
+    };
+
+    use super::{CanvasOp, CanvasState, clipped_label, compute_node_positions};
 
     #[test]
     fn set_graph_replaces_snapshot_and_prunes_missing_node_references() {
@@ -248,6 +464,57 @@ mod tests {
         assert!(state.annotations().is_empty());
     }
 
+    #[test]
+    fn compute_node_positions_is_deterministic_and_complete() {
+        let graph = graph_with_nodes_and_edges(
+            1,
+            &[
+                ("module:crate", ArchitectureNodeKind::Module),
+                ("module:crate::tools", ArchitectureNodeKind::Module),
+                ("file:src/lib.rs", ArchitectureNodeKind::File),
+                ("file:src/tools.rs", ArchitectureNodeKind::File),
+            ],
+            &[("module:crate", "module:crate::tools")],
+        );
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 320.0));
+
+        let one = compute_node_positions(&graph, rect);
+        let two = compute_node_positions(&graph, rect);
+
+        assert_eq!(one, two);
+        assert_eq!(one.len(), 4);
+    }
+
+    #[test]
+    fn compute_node_positions_splits_module_and_file_lanes() {
+        let graph = graph_with_nodes_and_edges(
+            1,
+            &[
+                ("module:crate", ArchitectureNodeKind::Module),
+                ("file:src/lib.rs", ArchitectureNodeKind::File),
+            ],
+            &[("module:crate", "file:src/lib.rs")],
+        );
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(320.0, 220.0));
+        let positions = compute_node_positions(&graph, rect);
+
+        let module_y = positions
+            .get("module:crate")
+            .expect("module position should be present")
+            .y;
+        let file_y = positions
+            .get("file:src/lib.rs")
+            .expect("file position should be present")
+            .y;
+        assert!(module_y < file_y);
+    }
+
+    #[test]
+    fn clipped_label_truncates_long_labels() {
+        let label = clipped_label("crate::very::long::module::name", 12);
+        assert_eq!(label, "crate::ve...");
+    }
+
     fn graph_with_nodes(revision: u64, node_ids: &[&str]) -> ArchitectureGraph {
         ArchitectureGraph {
             nodes: node_ids.iter().copied().map(graph_node).collect(),
@@ -257,11 +524,38 @@ mod tests {
         }
     }
 
+    fn graph_with_nodes_and_edges(
+        revision: u64,
+        nodes: &[(&str, ArchitectureNodeKind)],
+        edges: &[(&str, &str)],
+    ) -> ArchitectureGraph {
+        ArchitectureGraph {
+            nodes: nodes
+                .iter()
+                .map(|(id, kind)| graph_node_with_kind(id, *kind))
+                .collect(),
+            edges: edges
+                .iter()
+                .map(|(from, to)| ArchitectureEdge {
+                    from: (*from).to_owned(),
+                    to: (*to).to_owned(),
+                    relation: ArchitectureEdgeKind::DeclaresModule,
+                })
+                .collect(),
+            revision,
+            generated_at: UNIX_EPOCH,
+        }
+    }
+
     fn graph_node(node_id: &str) -> ArchitectureNode {
+        graph_node_with_kind(node_id, ArchitectureNodeKind::Module)
+    }
+
+    fn graph_node_with_kind(node_id: &str, kind: ArchitectureNodeKind) -> ArchitectureNode {
         ArchitectureNode {
             id: node_id.to_owned(),
             display_label: node_id.to_owned(),
-            kind: ArchitectureNodeKind::Module,
+            kind,
             path: None,
         }
     }
