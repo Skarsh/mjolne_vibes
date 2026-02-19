@@ -7,7 +7,7 @@ use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-use crate::agent::run_chat_turn;
+use crate::agent::{ChatTurnError, ChatTurnErrorKind, run_chat_turn};
 use crate::config::AgentSettings;
 
 #[derive(Clone)]
@@ -67,10 +67,10 @@ async fn handle_chat(State(state): State<AppState>, Json(req): Json<ChatRequest>
         Ok(outcome) => (StatusCode::OK, Json(outcome)).into_response(),
         Err(error) => {
             let details = error_details(&error);
-            let status = status_code_for_error(&details);
+            let status = status_code_for_error_kind(error.kind());
             warn!(
                 status = status.as_u16(),
-                error = %error,
+                error = %details,
                 "HTTP chat request failed"
             );
             let body = ErrorBody { error: details };
@@ -79,96 +79,46 @@ async fn handle_chat(State(state): State<AppState>, Json(req): Json<ChatRequest>
     }
 }
 
-fn error_details(error: &anyhow::Error) -> String {
-    error
-        .chain()
-        .map(std::string::ToString::to_string)
-        .collect::<Vec<_>>()
-        .join(": ")
+fn error_details(error: &ChatTurnError) -> String {
+    error.details()
 }
 
-fn status_code_for_error(details: &str) -> StatusCode {
-    let normalized = details.to_ascii_lowercase();
-
-    if contains_any(
-        &normalized,
-        &[
-            "policy blocked tool",
-            "invalid tool arguments for",
-            "unknown tool `",
-            "agent_max_input_chars",
-            "agent_max_output_chars",
-            "agent_max_tool_calls",
-            "agent_max_tool_calls_per_step",
-            "agent_max_consecutive_tool_steps",
-            "tool-call cap exceeded",
-            "tool-calls-per-step cap exceeded",
-            "consecutive tool-step cap exceeded",
-            "max_steps=",
-        ],
-    ) {
-        return StatusCode::BAD_REQUEST;
+fn status_code_for_error_kind(kind: ChatTurnErrorKind) -> StatusCode {
+    match kind {
+        ChatTurnErrorKind::BadRequest => StatusCode::BAD_REQUEST,
+        ChatTurnErrorKind::Upstream => StatusCode::BAD_GATEWAY,
+        ChatTurnErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
     }
-
-    if contains_any(&normalized, &["model chat failed", "upstream tool failure"]) {
-        return StatusCode::BAD_GATEWAY;
-    }
-
-    StatusCode::INTERNAL_SERVER_ERROR
-}
-
-fn contains_any(details: &str, needles: &[&str]) -> bool {
-    needles.iter().any(|needle| details.contains(needle))
 }
 
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
 
-    use super::{error_details, status_code_for_error};
+    use super::status_code_for_error_kind;
+    use crate::agent::ChatTurnErrorKind;
 
     #[test]
-    fn status_code_classifies_validation_and_policy_errors() {
-        let input_error = anyhow::anyhow!(
-            "user input exceeded AGENT_MAX_INPUT_CHARS limit: 4101 chars (max 4000)"
-        );
-        let policy_error = anyhow::anyhow!(
-            "failed while appending tool results at step 1: policy blocked tool `fetch_url`: url host `evil.com` is not in allowlist"
-        );
+    fn status_code_classifies_bad_request_kind() {
         assert_eq!(
-            status_code_for_error(&error_details(&input_error)),
-            StatusCode::BAD_REQUEST
-        );
-        assert_eq!(
-            status_code_for_error(&error_details(&policy_error)),
+            status_code_for_error_kind(ChatTurnErrorKind::BadRequest),
             StatusCode::BAD_REQUEST
         );
     }
 
     #[test]
-    fn status_code_classifies_upstream_errors() {
-        let model_error = anyhow::anyhow!("model chat failed for provider ollama at step 1");
-        let tool_error = anyhow::anyhow!(
-            "failed while appending tool results at step 1: upstream tool failure for `fetch_url` after 2 attempts: timed out after 5000ms"
-        );
+    fn status_code_classifies_upstream_kind() {
         assert_eq!(
-            status_code_for_error(&error_details(&model_error)),
-            StatusCode::BAD_GATEWAY
-        );
-        assert_eq!(
-            status_code_for_error(&error_details(&tool_error)),
+            status_code_for_error_kind(ChatTurnErrorKind::Upstream),
             StatusCode::BAD_GATEWAY
         );
     }
 
     #[test]
-    fn status_code_uses_error_chain_for_wrapped_guardrail_errors() {
-        let wrapped = anyhow::anyhow!("chat turn failed").context(
-            "tool-calls-per-step cap exceeded at step 2: requested 8, limit 4 (AGENT_MAX_TOOL_CALLS_PER_STEP)",
-        );
+    fn status_code_classifies_internal_kind() {
         assert_eq!(
-            status_code_for_error(&error_details(&wrapped)),
-            StatusCode::BAD_REQUEST
+            status_code_for_error_kind(ChatTurnErrorKind::Internal),
+            StatusCode::INTERNAL_SERVER_ERROR
         );
     }
 }

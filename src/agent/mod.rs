@@ -20,6 +20,50 @@ const SYSTEM_PROMPT: &str = "You are a concise, reliable Rust AI assistant. Be h
 const MAX_TRANSIENT_TOOL_ATTEMPTS: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatTurnErrorKind {
+    BadRequest,
+    Upstream,
+    Internal,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("{source}")]
+pub struct ChatTurnError {
+    kind: ChatTurnErrorKind,
+    #[source]
+    source: anyhow::Error,
+}
+
+impl ChatTurnError {
+    pub fn kind(&self) -> ChatTurnErrorKind {
+        self.kind
+    }
+
+    pub fn details(&self) -> String {
+        self.source
+            .chain()
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(": ")
+    }
+
+    fn from_anyhow(source: anyhow::Error) -> Self {
+        Self {
+            kind: classify_turn_error_kind(&source),
+            source,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+enum TurnErrorCategory {
+    #[error("bad_request")]
+    BadRequest,
+    #[error("upstream")]
+    Upstream,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RequestedAnswerFormat {
     JsonObject,
     MarkdownBullets,
@@ -130,9 +174,15 @@ pub async fn run_chat_json(settings: &AgentSettings, message: &str) -> Result<()
     Ok(())
 }
 
-pub async fn run_chat_turn(settings: &AgentSettings, message: &str) -> Result<ChatTurnOutcome> {
+pub async fn run_chat_turn(
+    settings: &AgentSettings,
+    message: &str,
+) -> std::result::Result<ChatTurnOutcome, ChatTurnError> {
     let mut session = ChatSession::new(settings);
-    session.run_turn(message).await.context("chat turn failed")
+    session
+        .run_turn(message)
+        .await
+        .map_err(ChatTurnError::from_anyhow)
 }
 
 pub async fn run_repl(settings: &AgentSettings) -> Result<()> {
@@ -271,7 +321,8 @@ impl ChatSession {
     }
 
     async fn run_turn_inner(&mut self, message: &str, trace: &mut TurnTrace) -> Result<String> {
-        enforce_input_char_limit(message, self.settings.max_input_chars)?;
+        enforce_input_char_limit(message, self.settings.max_input_chars)
+            .context(TurnErrorCategory::BadRequest)?;
         self.conversation.push(ModelMessage::user(message));
         let requested_format = detect_requested_answer_format(message);
         let mut format_repair_attempted = false;
@@ -290,7 +341,8 @@ impl ChatSession {
                         "model chat failed for provider {} at step {step}",
                         self.settings.model_provider
                     )
-                })?;
+                })
+                .context(TurnErrorCategory::Upstream)?;
             let model_call_latency = model_call_started_at.elapsed();
             trace.model_calls = trace.model_calls.saturating_add(1);
             trace.total_model_latency =
@@ -302,7 +354,8 @@ impl ChatSession {
                         "assistant final response",
                         &text,
                         self.settings.max_output_chars,
-                    )?;
+                    )
+                    .context(TurnErrorCategory::BadRequest)?;
                     // A non-tool model step breaks any consecutive tool-step streak.
                     consecutive_tool_steps = 0;
 
@@ -348,27 +401,31 @@ impl ChatSession {
                         calls.len(),
                         self.settings.max_tool_calls_per_step,
                         step,
-                    )?;
+                    )
+                    .context(TurnErrorCategory::BadRequest)?;
 
                     consecutive_tool_steps = enforce_consecutive_tool_step_cap(
                         consecutive_tool_steps,
                         self.settings.max_consecutive_tool_steps,
                         step,
-                    )?;
+                    )
+                    .context(TurnErrorCategory::BadRequest)?;
 
                     total_tool_calls = enforce_tool_call_cap(
                         total_tool_calls,
                         calls.len(),
                         self.settings.max_tool_calls,
                         step,
-                    )?;
+                    )
+                    .context(TurnErrorCategory::BadRequest)?;
 
                     let assistant_content = assistant_content.unwrap_or_default();
                     enforce_output_char_limit(
                         "assistant tool-call content",
                         &assistant_content,
                         self.settings.max_output_chars,
-                    )?;
+                    )
+                    .context(TurnErrorCategory::BadRequest)?;
 
                     self.conversation.push(ModelMessage::assistant_tool_calls(
                         assistant_content,
@@ -401,7 +458,8 @@ impl ChatSession {
         Err(anyhow!(
             "agent stopped after reaching max_steps={} without final text response",
             self.settings.max_steps
-        ))
+        )
+        .context(TurnErrorCategory::BadRequest))
     }
 }
 
@@ -658,7 +716,8 @@ async fn append_tool_results(
             &format!("tool `{tool_name}` output"),
             &content,
             max_output_chars,
-        )?;
+        )
+        .context(TurnErrorCategory::BadRequest)?;
 
         info!(
             step,
@@ -702,15 +761,19 @@ async fn dispatch_tool_call_with_timeout(
         match timeout_result {
             Ok(Ok(output)) => return Ok(output.payload.to_string()),
             Ok(Err(ToolDispatchError::UnknownTool { tool_name })) => {
-                return Err(anyhow!("unknown tool `{tool_name}`"));
+                return Err(
+                    anyhow!("unknown tool `{tool_name}`").context(TurnErrorCategory::BadRequest)
+                );
             }
             Ok(Err(ToolDispatchError::InvalidArgs { tool_name, reason })) => {
-                return Err(anyhow!(
-                    "invalid tool arguments for `{tool_name}`: {reason}"
-                ));
+                return Err(
+                    anyhow!("invalid tool arguments for `{tool_name}`: {reason}")
+                        .context(TurnErrorCategory::BadRequest),
+                );
             }
             Ok(Err(ToolDispatchError::PolicyViolation { tool_name, reason })) => {
-                return Err(anyhow!("policy blocked tool `{tool_name}`: {reason}"));
+                return Err(anyhow!("policy blocked tool `{tool_name}`: {reason}")
+                    .context(TurnErrorCategory::BadRequest));
             }
             Ok(Err(error @ ToolDispatchError::ExecutionFailed { .. })) => {
                 let should_retry = should_retry_tool_dispatch_error(tool_name, &error);
@@ -733,7 +796,8 @@ async fn dispatch_tool_call_with_timeout(
                 if should_retry {
                     return Err(anyhow!(
                         "upstream tool failure for `{tool_name}` after {MAX_TRANSIENT_TOOL_ATTEMPTS} attempts: {reason}"
-                    ));
+                    )
+                    .context(TurnErrorCategory::Upstream));
                 }
 
                 return Err(anyhow!("tool execution failed for `{tool_name}`: {reason}"));
@@ -755,7 +819,8 @@ async fn dispatch_tool_call_with_timeout(
                 if should_retry {
                     return Err(anyhow!(
                         "upstream tool failure for `{tool_name}` after {MAX_TRANSIENT_TOOL_ATTEMPTS} attempts: timed out after {tool_timeout_ms}ms"
-                    ));
+                    )
+                    .context(TurnErrorCategory::Upstream));
                 }
 
                 return Err(anyhow!(
@@ -765,9 +830,10 @@ async fn dispatch_tool_call_with_timeout(
         }
     }
 
-    Err(anyhow!(
-        "upstream tool failure for `{tool_name}`: exhausted retry attempts"
-    ))
+    Err(
+        anyhow!("upstream tool failure for `{tool_name}`: exhausted retry attempts")
+            .context(TurnErrorCategory::Upstream),
+    )
 }
 
 fn should_retry_tool_timeout(tool_name: &str) -> bool {
@@ -785,6 +851,17 @@ where
     timeout(Duration::from_millis(timeout_ms), future)
         .await
         .map_err(|_| ())
+}
+
+fn classify_turn_error_kind(error: &anyhow::Error) -> ChatTurnErrorKind {
+    if let Some(category) = error.downcast_ref::<TurnErrorCategory>() {
+        return match category {
+            TurnErrorCategory::BadRequest => ChatTurnErrorKind::BadRequest,
+            TurnErrorCategory::Upstream => ChatTurnErrorKind::Upstream,
+        };
+    }
+
+    ChatTurnErrorKind::Internal
 }
 
 fn tool_description(tool_name: &str) -> &'static str {
@@ -836,12 +913,15 @@ fn tool_parameters_schema(tool_name: &str) -> serde_json::Value {
 mod tests {
     use std::time::Duration;
 
+    use anyhow::anyhow;
+
     use super::{
-        RequestedAnswerFormat, answer_matches_requested_format, build_model_tool_definitions,
-        build_repl_tools_lines, detect_requested_answer_format, enforce_consecutive_tool_step_cap,
-        enforce_input_char_limit, enforce_output_char_limit, enforce_tool_call_cap,
-        enforce_tool_calls_per_step_cap, repl_help_lines, should_retry_tool_dispatch_error,
-        should_retry_tool_timeout, with_timeout,
+        ChatTurnErrorKind, RequestedAnswerFormat, TurnErrorCategory,
+        answer_matches_requested_format, build_model_tool_definitions, build_repl_tools_lines,
+        classify_turn_error_kind, detect_requested_answer_format,
+        enforce_consecutive_tool_step_cap, enforce_input_char_limit, enforce_output_char_limit,
+        enforce_tool_call_cap, enforce_tool_calls_per_step_cap, repl_help_lines,
+        should_retry_tool_dispatch_error, should_retry_tool_timeout, with_timeout,
     };
     use crate::config::{AgentSettings, ModelProvider};
     use crate::model::client::{MessageRole, ModelMessage};
@@ -1030,6 +1110,33 @@ mod tests {
         )
         .await;
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn classify_turn_error_kind_detects_bad_request_marker() {
+        let error = anyhow!("input too large").context(TurnErrorCategory::BadRequest);
+        assert_eq!(
+            classify_turn_error_kind(&error),
+            ChatTurnErrorKind::BadRequest
+        );
+    }
+
+    #[test]
+    fn classify_turn_error_kind_detects_upstream_marker() {
+        let error = anyhow!("model unavailable").context(TurnErrorCategory::Upstream);
+        assert_eq!(
+            classify_turn_error_kind(&error),
+            ChatTurnErrorKind::Upstream
+        );
+    }
+
+    #[test]
+    fn classify_turn_error_kind_defaults_to_internal_without_marker() {
+        let error = anyhow!("unexpected failure");
+        assert_eq!(
+            classify_turn_error_kind(&error),
+            ChatTurnErrorKind::Internal
+        );
     }
 
     #[test]

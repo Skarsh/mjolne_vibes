@@ -20,6 +20,7 @@ Current execution board for maintenance work.
 - [x] Documentation consolidation and archival into `docs/legacy/2026-02/` (2026-02-19).
 - [x] Added transport parity integration tests for CLI/HTTP guardrail + upstream error behavior (2026-02-19).
 - [x] Implemented file-backed `search_notes` behavior with ranking and tests (2026-02-19).
+- [x] Replaced HTTP substring-based error classification with typed turn error kinds to preserve status mapping robustness (2026-02-19).
 
 ## Board rules
 
