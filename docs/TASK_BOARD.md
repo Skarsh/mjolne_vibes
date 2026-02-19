@@ -12,7 +12,6 @@ Current execution board for maintenance work.
 
 ## Backlog candidates
 
-- [ ] Extract shared test setup utilities for temp paths and common env setup (review finding 7).
 - [ ] Expand tool metadata contract assertions beyond `additionalProperties = false` (review finding 8).
 - [ ] Add optional cost/usage counters in turn trace output.
 
@@ -28,6 +27,7 @@ Current execution board for maintenance work.
 - [x] Deduplicated provider tool-call parsing/request conversion internals in `src/model/client.rs` and added focused adapter parsing tests (2026-02-19).
 - [x] Consolidated repeated runtime settings logging blocks in `src/agent/mod.rs` via shared helper (2026-02-19).
 - [x] Added and adopted `ToolDispatchError` constructor helpers in `src/tools/mod.rs` to reduce repetitive error construction (2026-02-19).
+- [x] Extracted shared test support utilities for temp paths/env setup and reused them across eval/tools/integration tests (2026-02-19).
 - [x] Added optional safe redirect-following for `fetch_url`, restricted to allowlisted hosts (`FETCH_URL_FOLLOW_REDIRECTS`) (2026-02-19).
 
 ## Board rules

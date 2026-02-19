@@ -966,8 +966,7 @@ fn normalize_note_title(title: &str) -> Option<String> {
 mod tests {
     use std::fs;
     use std::future::Future;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::path::{Path, PathBuf};
 
     use reqwest::Url;
     use reqwest::header::{HeaderMap, HeaderValue, LOCATION};
@@ -979,6 +978,7 @@ mod tests {
         dispatch_tool_call as dispatch_tool_call_async, host_allowed, normalize_note_title,
         resolve_redirect_target, run_fetch_url_with_fetcher, tool_definitions,
     };
+    use crate::test_support::{remove_dir_if_exists, temp_path};
 
     fn dispatch_tool_call(
         tool_name: &str,
@@ -1533,20 +1533,10 @@ mod tests {
     }
 
     fn temp_notes_dir(test_name: &str) -> PathBuf {
-        let mut dir = std::env::temp_dir();
-        let now_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time should move forward")
-            .as_nanos();
-        dir.push(format!(
-            "mjolne_vibes_tools_{test_name}_{}_{}",
-            std::process::id(),
-            now_ns
-        ));
-        dir
+        temp_path(&format!("tools_{test_name}"))
     }
 
-    fn cleanup_dir(path: &PathBuf) {
-        let _ = fs::remove_dir_all(path);
+    fn cleanup_dir(path: &Path) {
+        remove_dir_if_exists(path);
     }
 }

@@ -1,8 +1,6 @@
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, ensure};
 use serde::Deserialize;
@@ -12,6 +10,7 @@ use crate::answer_format::{
     StructuredAnswerFormat, StructuredAnswerFormatError, validate_structured_answer_format,
 };
 use crate::config::AgentSettings;
+use crate::test_support::temp_path;
 use crate::tools::tool_definitions;
 
 pub const DEFAULT_EVAL_CASES_PATH: &str = "eval/cases.yaml";
@@ -173,15 +172,7 @@ pub async fn run_eval_command(settings: &AgentSettings, cases_path: &Path) -> Re
 }
 
 fn create_eval_notes_dir() -> Result<PathBuf> {
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let path = std::env::temp_dir().join(format!(
-        "mjolne_vibes_eval_notes_{}_{}",
-        process::id(),
-        now_ms
-    ));
+    let path = temp_path("eval_notes");
 
     fs::create_dir_all(&path)
         .with_context(|| format!("failed to create eval notes directory `{}`", path.display()))?;

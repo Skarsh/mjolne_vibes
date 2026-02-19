@@ -39,7 +39,7 @@ This section tracks what was implemented after this review was written.
 - [x] Finding 4 completed: deduplicated provider conversion/parsing internals in `src/model/client.rs` and added focused adapter parsing tests.
 - [x] Finding 5 completed: consolidated repeated runtime settings logging blocks in `src/agent/mod.rs` via shared helper.
 - [x] Finding 6 completed: added helper constructors for `ToolDispatchError` and applied them across runtime tool paths in `src/tools/mod.rs`.
-- [ ] Finding 7 open: duplicated test setup helpers.
+- [x] Finding 7 completed: extracted shared test support utilities for temp paths and common command env setup and reused them across eval/tools/integration tests.
 - [ ] Finding 8 open: strengthen tool metadata contract test assertions.
 
 Status source: `docs/TASK_BOARD.md` recently completed items and current code in `src/`.
@@ -179,7 +179,7 @@ Recommendation:
 - [x] Finding 4: Deduplicate provider conversion/parsing internals and add focused adapter tests.
 - [x] Finding 5: Consolidate repeated runtime settings logs into a shared helper.
 - [x] Finding 6: Add helper constructors for `ToolDispatchError` and apply them in tools paths.
-- [ ] Finding 7: Extract shared test utility helpers for temp paths and environment setup.
+- [x] Finding 7: Extract shared test utility helpers for temp paths and environment setup.
 - [ ] Finding 8: Expand contract tests for tool metadata beyond `additionalProperties = false`.
 
 ## Guardrails for Implementation
