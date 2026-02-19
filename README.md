@@ -29,7 +29,7 @@ Current implementation includes:
 - configurable input/output character limits (`AGENT_MAX_INPUT_CHARS`, `AGENT_MAX_OUTPUT_CHARS`),
 - `save_note` writes markdown into a controlled directory (`NOTES_DIR`) with overwrite confirmation gating (`SAVE_NOTE_ALLOW_OVERWRITE`),
 - live `fetch_url` retrieval with domain allowlist guardrail (`FETCH_URL_ALLOWED_DOMAINS`), response size cap (`FETCH_URL_MAX_BYTES`), and content-type checks,
-- evaluation harness with `eval/cases.yaml` (20 baseline cases) and checks for required tool usage, grounding/no-invented output, and answer format.
+- evaluation harness with `eval/cases.yaml` (20 baseline cases), checks for required tool usage/grounding/answer format, and isolated temporary notes directory handling for reproducible `save_note` cases.
 
 ## Provider strategy
 

@@ -135,7 +135,9 @@ Implementation notes:
 - Evaluation harness is implemented in `src/eval/mod.rs` and wired to CLI via `cargo run -- eval --cases ...`; checks include required tool usage, no invented tool output heuristics, and answer format validation (2026-02-19).
 - Baseline case dataset is implemented in `eval/cases.yaml` with 20 initial cases and target pass rate configuration (2026-02-19).
 - Baseline eval run against local Ollama (`qwen2.5:3b`) produced `14/20` passed (`70.0%`) on 2026-02-19; failures are diagnosable from per-case check output and turn trace logs.
-- Next task: tune prompts/cases and agent prompting behavior to reach >=80% pass rate.
+- Eval reliability/quality tuning is implemented via stricter format-following instructions in the agent system prompt, one-shot response reformat retry for JSON/markdown-bullet requests, and clearer format constraints in `eval/cases.yaml` prompts (2026-02-19).
+- Evaluation runs now use an isolated temporary notes directory in `run_eval_command` (`src/eval/mod.rs`) so `save_note` cases do not fail due to cross-run overwrite collisions (2026-02-19).
+- Updated baseline eval run against local Ollama (`qwen2.5:3b`) produced `19/20` passed (`95.0%`) on 2026-02-19, exceeding the >=80% target.
 
 ## Phase 5: Packaging + Next Step
 

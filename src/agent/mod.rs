@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use serde_json::json;
+use serde_json::{Value, json};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -15,7 +15,22 @@ use crate::tools::{
     dispatch_tool_call, tool_definitions,
 };
 
-const SYSTEM_PROMPT: &str = "You are a concise, reliable Rust AI assistant. Be helpful, truthful, and use tools when needed.";
+const SYSTEM_PROMPT: &str = "You are a concise, reliable Rust AI assistant. Be helpful, truthful, and use tools only when needed for the user's request. Follow the user's requested output format exactly. If they ask for a JSON object, return only a valid JSON object with no markdown fences or extra text. If they ask for markdown bullets, return only bullet lines starting with '- '.";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RequestedAnswerFormat {
+    JsonObject,
+    MarkdownBullets,
+}
+
+impl RequestedAnswerFormat {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::JsonObject => "json_object",
+            Self::MarkdownBullets => "markdown_bullets",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExecutedToolCall {
@@ -230,6 +245,8 @@ impl ChatSession {
     async fn run_turn_inner(&mut self, message: &str, trace: &mut TurnTrace) -> Result<String> {
         enforce_input_char_limit(message, self.settings.max_input_chars)?;
         self.conversation.push(ModelMessage::user(message));
+        let requested_format = detect_requested_answer_format(message);
+        let mut format_repair_attempted = false;
         let mut total_tool_calls: u32 = 0;
         let mut consecutive_tool_steps: u32 = 0;
 
@@ -258,6 +275,23 @@ impl ChatSession {
                         &text,
                         self.settings.max_output_chars,
                     )?;
+
+                    if let Some(format) = requested_format
+                        && !answer_matches_requested_format(format, &text)
+                        && !format_repair_attempted
+                    {
+                        info!(
+                            step,
+                            requested_format = %format.as_str(),
+                            "assistant final response did not match requested format; requesting reformat"
+                        );
+                        self.conversation.push(ModelMessage::assistant_text(text));
+                        self.conversation
+                            .push(ModelMessage::user(build_format_repair_prompt(format)));
+                        format_repair_attempted = true;
+                        continue;
+                    }
+
                     trace.output_chars = Some(text.chars().count());
                     self.conversation
                         .push(ModelMessage::assistant_text(text.clone()));
@@ -338,6 +372,50 @@ impl ChatSession {
             "agent stopped after reaching max_steps={} without final text response",
             self.settings.max_steps
         ))
+    }
+}
+
+fn detect_requested_answer_format(message: &str) -> Option<RequestedAnswerFormat> {
+    let normalized = message.to_ascii_lowercase();
+
+    if normalized.contains("json object") {
+        return Some(RequestedAnswerFormat::JsonObject);
+    }
+
+    if normalized.contains("markdown bullet")
+        || normalized.contains("markdown bullets")
+        || normalized.contains("bullet point")
+        || normalized.contains("bullet points")
+    {
+        return Some(RequestedAnswerFormat::MarkdownBullets);
+    }
+
+    None
+}
+
+fn answer_matches_requested_format(format: RequestedAnswerFormat, answer: &str) -> bool {
+    match format {
+        RequestedAnswerFormat::JsonObject => {
+            matches!(serde_json::from_str::<Value>(answer), Ok(Value::Object(_)))
+        }
+        RequestedAnswerFormat::MarkdownBullets => {
+            let lines: Vec<_> = answer
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .collect();
+            !lines.is_empty() && lines.iter().all(|line| line.trim_start().starts_with("- "))
+        }
+    }
+}
+
+fn build_format_repair_prompt(format: RequestedAnswerFormat) -> &'static str {
+    match format {
+        RequestedAnswerFormat::JsonObject => {
+            "Reformat your previous answer using the same facts. Return ONLY a valid JSON object. Do not include markdown fences, prose, or comments. Do not call any tools."
+        }
+        RequestedAnswerFormat::MarkdownBullets => {
+            "Reformat your previous answer using the same facts. Return ONLY markdown bullets, with each non-empty line starting with '- '. Do not include any non-bullet lines. Do not call any tools."
+        }
     }
 }
 
@@ -679,7 +757,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        build_model_tool_definitions, build_repl_tools_lines, enforce_consecutive_tool_step_cap,
+        RequestedAnswerFormat, answer_matches_requested_format, build_model_tool_definitions,
+        build_repl_tools_lines, detect_requested_answer_format, enforce_consecutive_tool_step_cap,
         enforce_input_char_limit, enforce_output_char_limit, enforce_tool_call_cap,
         enforce_tool_calls_per_step_cap, repl_help_lines, with_timeout,
     };
@@ -778,6 +857,39 @@ mod tests {
         assert!(tools.contains("search_notes(query: string, limit: u8)"));
         assert!(tools.contains("fetch_url(url: string)"));
         assert!(tools.contains("save_note(title: string, body: string)"));
+    }
+
+    #[test]
+    fn detect_requested_answer_format_identifies_json_and_bullets() {
+        assert_eq!(
+            detect_requested_answer_format("Return a JSON object with keys a and b."),
+            Some(RequestedAnswerFormat::JsonObject)
+        );
+        assert_eq!(
+            detect_requested_answer_format("Respond with markdown bullet points."),
+            Some(RequestedAnswerFormat::MarkdownBullets)
+        );
+        assert_eq!(detect_requested_answer_format("Say hello."), None);
+    }
+
+    #[test]
+    fn answer_matches_requested_format_validates_json_and_bullets() {
+        assert!(answer_matches_requested_format(
+            RequestedAnswerFormat::JsonObject,
+            r#"{"ok":true}"#
+        ));
+        assert!(!answer_matches_requested_format(
+            RequestedAnswerFormat::JsonObject,
+            "```json\n{\"ok\":true}\n```"
+        ));
+        assert!(answer_matches_requested_format(
+            RequestedAnswerFormat::MarkdownBullets,
+            "- one\n- two"
+        ));
+        assert!(!answer_matches_requested_format(
+            RequestedAnswerFormat::MarkdownBullets,
+            "one\n- two"
+        ));
     }
 
     #[tokio::test]

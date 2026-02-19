@@ -57,7 +57,7 @@ Progress notes (2026-02-18):
 ## Upcoming: Phase 4
 
 - [x] Run baseline suite and record pass/fail rate against local Ollama profile. (2026-02-19, `cargo run -- eval --cases eval/cases.yaml` on local `qwen2.5:3b`: `14/20` passed, `70.0%`, below target)
-- [ ] Tune prompts/cases until baseline suite reaches >=80% pass rate.
+- [x] Tune prompts/cases until baseline suite reaches >=80% pass rate. (2026-02-19, prompt/format tuning + isolated eval notes directory; `cargo run -- eval --cases eval/cases.yaml` on local `qwen2.5:3b`: `19/20` passed, `95.0%`)
 
 ## Usage notes
 

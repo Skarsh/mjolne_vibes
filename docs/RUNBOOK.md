@@ -193,6 +193,8 @@ Evaluation harness (default `eval/cases.yaml`):
 cargo run -- eval
 ```
 
+`eval` runs use an isolated temporary notes directory so `save_note` cases remain reproducible across repeated runs.
+
 Evaluation harness (custom cases path):
 
 ```bash

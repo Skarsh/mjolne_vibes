@@ -1,17 +1,17 @@
 target_pass_rate: 0.80
 cases:
   - id: no_tool_greeting
-    prompt: Say hello in one short sentence.
+    prompt: Say hello in one short sentence and include the exact word "hello".
     answer_format: plain_text
     answer_must_contain: [hello]
 
   - id: no_tool_capabilities
-    prompt: In one short sentence, describe what tools you can use.
+    prompt: In one short sentence, describe what tools you can use and include the word "tool".
     answer_format: plain_text
     answer_must_contain: [tool]
 
   - id: no_tool_json_echo
-    prompt: Respond as a JSON object with keys "task" and "status". Set "task" to "echo" and "status" to "ok".
+    prompt: Respond as a JSON object with keys "task" and "status". Set "task" to "echo" and "status" to "ok". Return only JSON with no markdown or extra text.
     answer_format: json_object
     answer_must_contain: ["\"echo\"", "\"ok\""]
 
@@ -21,7 +21,7 @@ cases:
     answer_must_contain: [Rust]
 
   - id: fetch_example_json_summary
-    prompt: Use fetch_url on https://example.com. Return a JSON object with keys "url" and "summary".
+    prompt: Use fetch_url on https://example.com. Return a JSON object with keys "url" and "summary". Return only JSON with no markdown or extra text.
     required_tools: [fetch_url]
     answer_format: json_object
     answer_must_contain: [example.com]
@@ -49,7 +49,7 @@ cases:
     no_invented_tool_output: true
 
   - id: fetch_example_status_json
-    prompt: Use fetch_url on https://example.com and return a JSON object with keys "status_code" and "final_url".
+    prompt: Use fetch_url on https://example.com and return a JSON object with keys "status_code" and "final_url". Return only JSON with no markdown or extra text.
     required_tools: [fetch_url]
     answer_format: json_object
     answer_must_contain: [status_code]
@@ -63,7 +63,7 @@ cases:
     no_invented_tool_output: true
 
   - id: search_notes_empty_json
-    prompt: Use search_notes with query "rust" and limit 3. Return a JSON object with keys "query" and "result_count".
+    prompt: Use search_notes with query "rust" and limit 3. Return a JSON object with keys "query" and "result_count". Return only JSON with no markdown or extra text.
     required_tools: [search_notes]
     answer_format: json_object
     answer_must_contain: [rust]
@@ -91,21 +91,21 @@ cases:
     no_invented_tool_output: true
 
   - id: save_note_create_json
-    prompt: Use save_note with title "Eval Case One" and body "hello from eval". Return a JSON object with keys "status" and "path".
+    prompt: Use save_note with title "Eval Case One" and body "hello from eval". Return a JSON object with keys "status" and "path". Return only JSON with no markdown or extra text.
     required_tools: [save_note]
     answer_format: json_object
     answer_must_contain: [status, path]
     no_invented_tool_output: true
 
   - id: save_note_create_plain
-    prompt: Use save_note with title "Eval Case Two" and body "rust eval note". Reply with one sentence confirming it was saved.
+    prompt: Use save_note with title "Eval Case Two" and body "rust eval note". Reply with one sentence confirming it was saved and include the word "saved".
     required_tools: [save_note]
     answer_format: plain_text
     answer_must_contain: [saved]
     no_invented_tool_output: true
 
   - id: save_note_symbols
-    prompt: 'Use save_note with title "Eval: Symbols & Spaces" and body "normalize filename test". Mention the created filename in your answer.'
+    prompt: 'Use save_note with title "Eval: Symbols & Spaces" and body "normalize filename test". Mention the created filename in your answer and include ".md".'
     required_tools: [save_note]
     answer_format: plain_text
     answer_must_contain: [.md]
@@ -126,7 +126,7 @@ cases:
     no_invented_tool_output: true
 
   - id: fetch_json_no_forbidden
-    prompt: Use fetch_url on https://example.com and return a JSON object with keys "source" and "note".
+    prompt: Use fetch_url on https://example.com and return a JSON object with keys "source" and "note". Return only JSON with no markdown or extra text.
     required_tools: [fetch_url]
     answer_format: json_object
     answer_must_contain: [source]

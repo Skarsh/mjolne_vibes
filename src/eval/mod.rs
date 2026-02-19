@@ -1,6 +1,8 @@
 use std::collections::{BTreeSet, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, ensure};
 use serde::Deserialize;
@@ -116,7 +118,18 @@ pub async fn run_eval_suite(settings: &AgentSettings, cases_path: &Path) -> Resu
 }
 
 pub async fn run_eval_command(settings: &AgentSettings, cases_path: &Path) -> Result<()> {
-    let report = run_eval_suite(settings, cases_path).await?;
+    let mut eval_settings = settings.clone();
+    let eval_notes_dir = create_eval_notes_dir()?;
+    eval_settings.notes_dir = eval_notes_dir.display().to_string();
+
+    let report_result = run_eval_suite(&eval_settings, cases_path).await;
+    if let Err(error) = fs::remove_dir_all(&eval_notes_dir) {
+        eprintln!(
+            "warning: failed to remove eval notes directory `{}`: {error}",
+            eval_notes_dir.display()
+        );
+    }
+    let report = report_result?;
 
     println!(
         "Running {} evaluation cases from {}",
@@ -154,6 +167,23 @@ pub async fn run_eval_command(settings: &AgentSettings, cases_path: &Path) -> Re
     }
 
     Ok(())
+}
+
+fn create_eval_notes_dir() -> Result<PathBuf> {
+    let now_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let path = std::env::temp_dir().join(format!(
+        "mjolne_vibes_eval_notes_{}_{}",
+        process::id(),
+        now_ms
+    ));
+
+    fs::create_dir_all(&path)
+        .with_context(|| format!("failed to create eval notes directory `{}`", path.display()))?;
+
+    Ok(path)
 }
 
 async fn run_eval_case(settings: &AgentSettings, case: &EvalCase) -> EvalCaseResult {
@@ -551,8 +581,9 @@ mod tests {
 
     use super::{
         AnswerFormat, EvalCase, EvalSuite, check_answer_content, check_answer_format,
-        check_no_invented_tool_output, check_required_tool_usage, extract_numeric_tokens,
-        extract_quoted_fragments, extract_urls, normalize_and_validate_suite,
+        check_no_invented_tool_output, check_required_tool_usage, create_eval_notes_dir,
+        extract_numeric_tokens, extract_quoted_fragments, extract_urls,
+        normalize_and_validate_suite,
     };
     use crate::agent::{ChatTurnOutcome, ExecutedToolCall, TurnTraceSummary};
 
@@ -686,6 +717,20 @@ mod tests {
 
         let urls = extract_urls("see https://example.com/test, now");
         assert!(urls.contains("https://example.com/test"));
+    }
+
+    #[test]
+    fn create_eval_notes_dir_creates_unique_temp_directory() {
+        let path = create_eval_notes_dir().expect("eval notes dir should be created");
+        assert!(path.exists());
+        assert!(path.is_dir());
+        assert!(
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.starts_with("mjolne_vibes_eval_notes_"))
+                .unwrap_or(false)
+        );
+        std::fs::remove_dir_all(path).expect("temp eval dir cleanup should succeed");
     }
 
     fn test_outcome(final_text: &str, tool_calls: Vec<(&str, &str)>) -> ChatTurnOutcome {
