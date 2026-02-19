@@ -110,7 +110,9 @@ pub async fn dispatch_tool_call(
     runtime: &ToolRuntimeConfig,
 ) -> Result<ToolDispatchOutput, ToolDispatchError> {
     let payload = match tool_name {
-        SEARCH_NOTES_TOOL_NAME => Ok(run_search_notes(parse_args(tool_name, raw_args)?)),
+        SEARCH_NOTES_TOOL_NAME => {
+            run_search_notes(parse_args(tool_name, raw_args)?, &runtime.notes_dir)
+        }
         FETCH_URL_TOOL_NAME => {
             run_fetch_url(
                 parse_args(tool_name, raw_args)?,
@@ -148,12 +150,190 @@ fn parse_args<T: for<'de> Deserialize<'de>>(
     })
 }
 
-fn run_search_notes(args: SearchNotesArgs) -> Value {
-    json!({
-        "query": args.query,
+#[derive(Debug)]
+struct SearchNoteMatch {
+    title: String,
+    path: String,
+    score: u32,
+    snippet: String,
+}
+
+fn run_search_notes(args: SearchNotesArgs, notes_dir: &Path) -> Result<Value, ToolDispatchError> {
+    let query = args.query.trim();
+    if query.is_empty() {
+        return Err(ToolDispatchError::InvalidArgs {
+            tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
+            reason: "query cannot be empty".to_owned(),
+        });
+    }
+
+    let limit = args.limit as usize;
+    if limit == 0 {
+        return Ok(json!({
+            "query": query,
+            "limit": args.limit,
+            "total_matches": 0,
+            "results": []
+        }));
+    }
+
+    let query_lower = query.to_ascii_lowercase();
+    let mut matches = Vec::new();
+
+    for path in list_searchable_note_paths(notes_dir)? {
+        let raw = fs::read(&path).map_err(|error| ToolDispatchError::ExecutionFailed {
+            tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
+            reason: format!("failed to read note `{}`: {error}", path.display()),
+        })?;
+        let content = String::from_utf8_lossy(&raw).to_string();
+        let title = extract_note_title(&content, &path);
+        let score = count_occurrences_case_insensitive(&title, &query_lower)
+            .saturating_mul(2)
+            .saturating_add(count_occurrences_case_insensitive(&content, &query_lower));
+        if score == 0 {
+            continue;
+        }
+
+        matches.push(SearchNoteMatch {
+            title,
+            path: path.display().to_string(),
+            score,
+            snippet: extract_note_snippet(&content, &query_lower),
+        });
+    }
+
+    matches.sort_by(|left, right| {
+        right
+            .score
+            .cmp(&left.score)
+            .then_with(|| left.title.cmp(&right.title))
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    let total_matches = matches.len();
+    matches.truncate(limit);
+
+    Ok(json!({
+        "query": query,
         "limit": args.limit,
-        "results": []
-    })
+        "total_matches": total_matches,
+        "results": matches.into_iter().map(|matched| {
+            json!({
+                "title": matched.title,
+                "path": matched.path,
+                "score": matched.score,
+                "snippet": matched.snippet,
+            })
+        }).collect::<Vec<_>>()
+    }))
+}
+
+fn list_searchable_note_paths(notes_dir: &Path) -> Result<Vec<PathBuf>, ToolDispatchError> {
+    if !notes_dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut paths = Vec::new();
+    let entries = fs::read_dir(notes_dir).map_err(|error| ToolDispatchError::ExecutionFailed {
+        tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
+        reason: format!(
+            "failed to read notes directory `{}`: {error}",
+            notes_dir.display()
+        ),
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| ToolDispatchError::ExecutionFailed {
+            tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
+            reason: format!(
+                "failed to list entry in notes directory `{}`: {error}",
+                notes_dir.display()
+            ),
+        })?;
+        let path = entry.path();
+        let metadata =
+            fs::symlink_metadata(&path).map_err(|error| ToolDispatchError::ExecutionFailed {
+                tool_name: SEARCH_NOTES_TOOL_NAME.to_owned(),
+                reason: format!("failed to inspect note path `{}`: {error}", path.display()),
+            })?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            continue;
+        }
+        if !is_searchable_note_extension(&path) {
+            continue;
+        }
+        paths.push(path);
+    }
+
+    paths.sort();
+    Ok(paths)
+}
+
+fn is_searchable_note_extension(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    let normalized = extension.to_ascii_lowercase();
+    normalized == "md" || normalized == "markdown" || normalized == "txt"
+}
+
+fn extract_note_title(content: &str, path: &Path) -> String {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(stripped) = trimmed.strip_prefix("# ") {
+            let title = stripped.trim();
+            if !title.is_empty() {
+                return title.to_owned();
+            }
+        }
+    }
+
+    path.file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| "untitled".to_owned())
+}
+
+fn extract_note_snippet(content: &str, query_lower: &str) -> String {
+    let mut fallback: Option<String> = None;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if fallback.is_none() {
+            fallback = Some(trimmed.to_owned());
+        }
+        if trimmed.to_ascii_lowercase().contains(query_lower) {
+            return truncate_chars(trimmed, 160);
+        }
+    }
+
+    fallback
+        .map(|value| truncate_chars(&value, 160))
+        .unwrap_or_default()
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_owned();
+    }
+    text.chars().take(max_chars).collect()
+}
+
+fn count_occurrences_case_insensitive(haystack: &str, needle_lower: &str) -> u32 {
+    if needle_lower.is_empty() {
+        return 0;
+    }
+
+    let haystack_lower = haystack.to_ascii_lowercase();
+    let mut count = 0_u32;
+    let mut offset = 0_usize;
+    while let Some(index) = haystack_lower[offset..].find(needle_lower) {
+        count = count.saturating_add(1);
+        offset = offset.saturating_add(index + needle_lower.len());
+    }
+
+    count
 }
 
 async fn run_fetch_url(
@@ -657,27 +837,99 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_search_notes_returns_structured_payload() {
-        let runtime = test_runtime_config("search_notes", false);
+    fn dispatch_search_notes_returns_ranked_results_with_limit() {
+        let runtime = test_runtime_config("search_notes_ranked", false);
+        cleanup_dir(&runtime.notes_dir);
+        fs::create_dir_all(&runtime.notes_dir).expect("notes dir should be creatable");
+        fs::write(
+            runtime.notes_dir.join("rust-guide.md"),
+            "# Rust Guide\n\nRust ownership and memory safety.\nRust performance details.\n",
+        )
+        .expect("note should be writable");
+        fs::write(
+            runtime.notes_dir.join("async-tips.md"),
+            "# Async Tips\n\nTokio helps with rust async workflows.\n",
+        )
+        .expect("note should be writable");
+        fs::write(
+            runtime.notes_dir.join("other.md"),
+            "# Other\n\nNo matches here.\n",
+        )
+        .expect("note should be writable");
+
         let output = dispatch_tool_call(
             SEARCH_NOTES_TOOL_NAME,
             json!({
                 "query": "rust",
-                "limit": 5
+                "limit": 2
             }),
             &runtime,
         )
         .expect("should dispatch");
 
         assert_eq!(output.tool_name, SEARCH_NOTES_TOOL_NAME);
-        assert_eq!(
-            output.payload,
+        assert_eq!(output.payload.get("query"), Some(&json!("rust")));
+        assert_eq!(output.payload.get("limit"), Some(&json!(2)));
+        assert_eq!(output.payload.get("total_matches"), Some(&json!(2)));
+
+        let results = output
+            .payload
+            .get("results")
+            .and_then(|value| value.as_array())
+            .expect("results should be an array");
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].get("title"), Some(&json!("Rust Guide")));
+        assert_eq!(results[1].get("title"), Some(&json!("Async Tips")));
+        assert!(
+            results[0]
+                .get("score")
+                .and_then(|value| value.as_u64())
+                .expect("score should be u64")
+                >= results[1]
+                    .get("score")
+                    .and_then(|value| value.as_u64())
+                    .expect("score should be u64")
+        );
+
+        cleanup_dir(&runtime.notes_dir);
+    }
+
+    #[test]
+    fn dispatch_search_notes_returns_empty_when_notes_dir_is_missing() {
+        let runtime = test_runtime_config("search_notes_missing_dir", false);
+        cleanup_dir(&runtime.notes_dir);
+
+        let output = dispatch_tool_call(
+            SEARCH_NOTES_TOOL_NAME,
             json!({
                 "query": "rust",
-                "limit": 5,
-                "results": []
-            })
-        );
+                "limit": 3
+            }),
+            &runtime,
+        )
+        .expect("should dispatch");
+
+        assert_eq!(output.payload.get("total_matches"), Some(&json!(0)));
+        assert_eq!(output.payload.get("results"), Some(&json!([])));
+    }
+
+    #[test]
+    fn dispatch_search_notes_rejects_empty_query() {
+        let runtime = test_runtime_config("search_notes_empty_query", false);
+        let error = dispatch_tool_call(
+            SEARCH_NOTES_TOOL_NAME,
+            json!({
+                "query": "   ",
+                "limit": 3
+            }),
+            &runtime,
+        )
+        .expect_err("empty query should fail");
+
+        let ToolDispatchError::InvalidArgs { reason, .. } = error else {
+            panic!("expected invalid args error");
+        };
+        assert!(reason.contains("query cannot be empty"));
     }
 
     #[test]

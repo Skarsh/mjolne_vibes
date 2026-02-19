@@ -33,7 +33,7 @@ Full project review for correctness, safety, regressions, and test coverage gaps
 | F-002 | high | closed | `src/server/mod.rs:90` | HTTP status mapping now classifies all guardrail/client errors as `400` and upstream/model failures as `502` via centralized marker matching. |
 | F-003 | medium | closed | `src/agent/mod.rs:688` | Tool policy/arg/unknown-tool failures now hard-fail the turn; only transient `fetch_url` execution/timeouts are retried once. |
 | F-004 | medium | closed | `src/agent/mod.rs:307` | `consecutive_tool_steps` is now reset on non-tool model responses before potential format-repair continue. |
-| F-005 | medium | open | `src/tools/mod.rs:149` | `search_notes` is still a stub that always returns `results: []`, so advertised local-note search behavior is not implemented. |
+| F-005 | medium | closed | `src/tools/mod.rs:161` | `search_notes` now performs file-backed search in `NOTES_DIR` with deterministic score ordering and `limit` enforcement. |
 | F-006 | medium | closed | `tests/chat_transport_parity.rs:1` | Added integration tests covering CLI/HTTP oversized-input guardrail parity and HTTP `502` mapping for unreachable model upstream errors. |
 
 ## Finding details
@@ -126,6 +126,16 @@ Status update (2026-02-19):
   - Implement file-backed search under `NOTES_DIR` with deterministic scoring and `limit`.
   - Add unit tests for query matching, limit truncation, and no-match behavior.
 
+Status update (2026-02-19):
+- Closed by implementing file-backed `search_notes` in `src/tools/mod.rs:161`:
+  - reads note files from `NOTES_DIR`
+  - ranks matches by case-insensitive occurrence count (deterministic tie-breaks)
+  - enforces `limit` and returns structured `total_matches` + `results`
+- Added unit coverage:
+  - `dispatch_search_notes_returns_ranked_results_with_limit`
+  - `dispatch_search_notes_returns_empty_when_notes_dir_is_missing`
+  - `dispatch_search_notes_rejects_empty_query`
+
 ### F-006 Missing integration tests for transport parity and error mapping (medium)
 
 - Evidence:
@@ -161,6 +171,9 @@ Status update (2026-02-19):
 - `cargo fmt --all` (pass, after F-006 remediation)
 - `cargo clippy --all-targets --all-features -- -D warnings` (pass, after F-006 remediation)
 - `cargo test --all-targets --all-features` (pass, `68/68` tests after F-006 remediation)
+- `cargo fmt --all` (pass, after F-005 remediation)
+- `cargo clippy --all-targets --all-features -- -D warnings` (pass, after F-005 remediation)
+- `cargo test --all-targets --all-features` (pass, `70/70` tests after F-005 remediation)
 
 ## Notes
 
