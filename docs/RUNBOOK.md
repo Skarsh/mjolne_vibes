@@ -6,6 +6,7 @@ Operational setup and runtime commands.
 
 - Rust stable (`cargo`)
 - Docker
+- NVIDIA Container Toolkit configured for Docker (`nvidia` runtime available)
 - `curl`
 - Optional: OpenAI API key (only for OpenAI provider)
 
@@ -16,6 +17,7 @@ Operational setup and runtime commands.
 ```
 
 This script sets up `.env`, starts Ollama (Docker), pulls the model, and installs git hooks.
+The repo `compose.yaml` requests an NVIDIA GPU for the Ollama container.
 
 ## Default environment
 
@@ -90,6 +92,7 @@ cargo test --all-targets --all-features
 ## Troubleshooting
 
 - Provider errors: verify model/provider settings and connectivity.
+- `could not select device driver "nvidia" with capabilities: [[gpu]]`: Docker cannot access NVIDIA runtime yet; install/configure NVIDIA Container Toolkit and restart Docker.
 - `fetch_url` blocks: check allowlist/content-type/size limits.
 - `fetch_url` invalid URL errors: include full scheme in prompts (for example, `https://example.com`).
 - Loop/limit errors: check guardrail env values and turn trace logs.

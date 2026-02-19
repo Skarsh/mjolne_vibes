@@ -23,6 +23,8 @@ It supports:
 
 ## Quickstart
 
+`compose.yaml` is configured to run Ollama with an NVIDIA GPU. Ensure NVIDIA Container Toolkit is installed and Docker has the `nvidia` runtime available before bootstrap.
+
 1. Bootstrap:
 
 ```bash
