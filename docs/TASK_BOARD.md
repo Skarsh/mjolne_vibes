@@ -5,17 +5,25 @@ Current execution board for maintenance work.
 ## Current focus
 
 - `Maintenance / Hardening`
+- `Native Studio Canvas Prototype (v0)`
 
 ## Active tasks
 
-- [ ] No active implementation task selected.
+- [ ] Implement native `studio` command shell with chat pane + canvas pane (`egui`).
+- [ ] Add typed `studio` event channel contract for text results + canvas updates.
 
 ## Backlog candidates
 
+- [ ] Implement deterministic Rust file/module graph builder (`graph/*`).
+- [ ] Add debounced filesystem watcher and turn-completion-triggered graph refresh.
+- [ ] Implement canvas operation reducer (`SetGraph`, `HighlightNodes`, `FocusNode`, `AddAnnotation`, `ClearAnnotations`).
+- [ ] Add changed-node highlight and optional 1-hop impact overlay.
+- [ ] Add integration tests for studio event flow and non-blocking refresh behavior.
 - [ ] Add optional cost/usage counters in turn trace output.
 
 ## Recently completed
 
+- [x] Defined native `studio` + canvas v0 roadmap/architecture baseline and constraints (2026-02-19).
 - [x] Expanded tool metadata contract assertions to validate v1 tool names, descriptions, and full parameter schemas (review finding 8) (2026-02-19).
 - [x] v1 phases 0-5 completed (see `docs/legacy/2026-02/ROADMAP.md` for full history).
 - [x] Documentation consolidation and archival into `docs/legacy/2026-02/` (2026-02-19).
