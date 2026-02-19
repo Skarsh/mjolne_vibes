@@ -1,180 +1,184 @@
-# Deep Code Review - 2026-02-19
+# Deep Code Review - Simplification and Unification (2026-02-19)
 
-## Scope
+## Context
 
-Full project review for correctness, safety, regressions, and test coverage gaps.
+This document captures a deep maintenance review focused on:
+- Simplifying complex paths.
+- De-duplicating logic and metadata.
+- Unifying behavior across CLI, eval, and HTTP transports.
 
-## Review rubric
+Date: 2026-02-19
+Repository: `mjolne_vibes`
 
-- `critical`: data loss/security/safety break or severe correctness bug
-- `high`: likely user-facing incorrect behavior or major reliability issue
-- `medium`: meaningful robustness/maintainability/test gap
-- `low`: minor issue or polish
+## Scope Reviewed
 
-## Progress tracker
+- `src/agent/mod.rs`
+- `src/model/client.rs`
+- `src/tools/mod.rs`
+- `src/server/mod.rs`
+- `src/eval/mod.rs`
+- `src/config.rs`
+- `src/main.rs`
+- `tests/chat_transport_parity.rs`
+- Core docs (`README.md`, `docs/ROADMAP.md`, `docs/TASK_BOARD.md`, `docs/ARCHITECTURE.md`, `docs/SAFETY.md`, `docs/TESTING.md`, `docs/WORKFLOW.md`)
 
-- [x] Baseline checks (`fmt`, `clippy`, `test`)
-- [x] `src/config.rs`
-- [x] `src/model/client.rs`
-- [x] `src/agent/mod.rs`
-- [x] `src/tools/mod.rs`
-- [x] `src/server/mod.rs`
-- [x] `src/eval/mod.rs`
-- [x] `src/main.rs` + `src/lib.rs`
-- [x] Cross-cutting review (parity, limits, logging, error mapping)
-- [x] Test-gap analysis
-- [x] Final findings summary
+## Baseline Verification
 
-## Findings log
+All quality gates passed during review:
+- `cargo fmt --all -- --check`
+- `cargo clippy --all-targets --all-features -- -D warnings`
+- `cargo test --all-targets --all-features`
 
-| ID | Severity | Status | File | Summary |
-|---|---|---|---|---|
-| F-001 | high | closed | `src/tools/mod.rs:434` | `save_note` now inspects existing target with `symlink_metadata`, rejects symlink targets, and writes via temp file + atomic move path. |
-| F-002 | high | closed | `src/server/mod.rs:90` | HTTP status mapping now classifies all guardrail/client errors as `400` and upstream/model failures as `502` via centralized marker matching. |
-| F-003 | medium | closed | `src/agent/mod.rs:688` | Tool policy/arg/unknown-tool failures now hard-fail the turn; only transient `fetch_url` execution/timeouts are retried once. |
-| F-004 | medium | closed | `src/agent/mod.rs:307` | `consecutive_tool_steps` is now reset on non-tool model responses before potential format-repair continue. |
-| F-005 | medium | closed | `src/tools/mod.rs:161` | `search_notes` now performs file-backed search in `NOTES_DIR` with deterministic score ordering and `limit` enforcement. |
-| F-006 | medium | closed | `tests/chat_transport_parity.rs:1` | Added integration tests covering CLI/HTTP oversized-input guardrail parity and HTTP `502` mapping for unreachable model upstream errors. |
+## Findings (Prioritized)
 
-## Finding details
+### 1. High: HTTP status classification depends on string matching
 
-### F-001 `save_note` symlink escape (high)
+Current behavior in `src/server/mod.rs:90` classifies errors by scanning error text substrings from agent/tool paths.
 
-- Evidence:
-  - `src/tools/mod.rs:451` computes `note_path` with `notes_dir.join(...)`.
-  - `src/tools/mod.rs:452` uses `note_path.exists()` for overwrite gating.
-  - `src/tools/mod.rs:473` writes with `fs::write(&note_path, ...)`, which follows symlinks.
-- Impact:
-  - A symlink inside `NOTES_DIR` can redirect writes outside the controlled directory.
-  - This violates the policy boundary for `save_note`.
-- Recommendation:
-  - Use symlink-safe open flow (`OpenOptions` with `create_new`/truncate strategy) and reject symlink targets via `symlink_metadata`.
-  - Canonicalize and validate final resolved path remains under canonicalized `NOTES_DIR`.
-  - Add tests covering regular file, symlink file, and broken symlink cases.
+Why this is risky:
+- Classification silently depends on wording in other modules.
+- Refactoring error messages can unintentionally change API status behavior (`400` vs `502` vs `500`).
+- This weakens transport parity guarantees.
 
-Status update (2026-02-19):
-- Closed by hardening `save_note` write flow in `src/tools/mod.rs:434`:
-  - inspect existing target with `symlink_metadata`
-  - reject symlink and non-file overwrite targets
-  - write note contents to a temp file with `create_new(true)`
-  - move into place after optional regular-file removal
-- Added regression test `dispatch_save_note_rejects_symlink_note_path` in `src/tools/mod.rs:814` (unix-gated).
+Examples of coupled message sources:
+- `src/agent/mod.rs:290`
+- `src/agent/mod.rs:561`
+- `src/agent/mod.rs:735`
 
-### F-002 HTTP status misclassification for guardrail errors (high)
+Recommendation:
+- Introduce typed error categories for turn execution (for example: validation/policy/upstream/internal).
+- Return typed category from agent path.
+- Map category to HTTP status in server without substring parsing.
 
-- Evidence:
-  - `src/server/mod.rs:90` maps statuses via string fragments.
-  - It checks `AGENT_MAX_INPUT_CHARS`/`AGENT_MAX_OUTPUT_CHARS` but not other actual guardrail tokens from agent errors.
-  - Actual guardrail error strings include:
-    - `src/agent/mod.rs:558` `AGENT_MAX_TOOL_CALLS`
-    - `src/agent/mod.rs:576` `AGENT_MAX_CONSECUTIVE_TOOL_STEPS`
-    - `src/agent/mod.rs:594` `AGENT_MAX_TOOL_CALLS_PER_STEP`
-- Impact:
-  - Valid client-side limit violations can be returned as `500` instead of `400`.
-- Recommendation:
-  - Replace substring classification with typed error variants or a stable error code enum.
-  - Add HTTP tests for all limit errors to enforce expected `400` mapping.
+### 2. Medium: Tool contract metadata is duplicated across paths
 
-Status update (2026-02-19):
-- Closed by broadening guardrail/client markers and explicit upstream markers in `src/server/mod.rs:90`.
-- Added/updated unit coverage for policy, wrapped guardrail, and upstream tool failure classification in `src/server/mod.rs:133`.
+Tool identity is split across:
+- Registry names in `src/tools/mod.rs:23`
+- REPL signatures in `src/agent/mod.rs:526`
+- Descriptions in `src/agent/mod.rs:790`
+- JSON schemas in `src/agent/mod.rs:799`
 
-### F-003 Tool policy violations do not hard-fail turn (medium)
+Why this is risky:
+- Multiple edit points per tool.
+- Drift risk between schema/description/signature and actual runtime contract.
 
-- Evidence:
-  - `src/agent/mod.rs:685` handles tool dispatch.
-  - `src/agent/mod.rs:699` on tool error returns JSON text `{\"error\": ...}` instead of bubbling an error.
-  - `src/agent/mod.rs:675` appends that string as normal tool result and loop continues.
-- Impact:
-  - Safety/policy blocks are not guaranteed to terminate turn execution.
-  - Final answer quality depends on model correctly interpreting tool error payloads.
-- Recommendation:
-  - Decide and enforce policy semantics:
-    - either hard-stop on policy violations/timeouts, or
-    - return typed tool-error frames with explicit model instructions and capped retries.
-  - Add tests for disallowed `fetch_url`/overwrite-blocked `save_note` behavior.
+Recommendation:
+- Make `ToolDefinition` the single metadata source for name, signature, description, and schema.
+- Build both REPL output and model tool definitions directly from this shared metadata.
 
-Status update (2026-02-19):
-- Closed by changing tool dispatch path to return `Result<String>` and propagate:
-  - unknown tool, invalid args, policy block => immediate turn failure
-  - `fetch_url` transient execution failures/timeouts => one retry, then explicit upstream failure
-- Implemented in `src/agent/mod.rs:688` and retry helpers at `src/agent/mod.rs:773`.
+### 3. Medium: Answer-format validation logic is duplicated
 
-### F-004 Consecutive tool-step counter not reset on non-tool step (medium)
+Same concept appears in two places:
+- Runtime format checks in `src/agent/mod.rs:426`
+- Eval format checks in `src/eval/mod.rs:341`
 
-- Evidence:
-  - `src/agent/mod.rs:278` initializes `consecutive_tool_steps`.
-  - It increments only in tool-call branch (`src/agent/mod.rs:350`) and is never reset in final-text branch (`src/agent/mod.rs:299` onward).
-  - Format-repair branch (`src/agent/mod.rs:306`) `continue`s without resetting.
-- Impact:
-  - Non-consecutive tool steps can be counted as consecutive in edge flows.
-- Recommendation:
-  - Reset counter on any non-tool model response before continuing.
-  - Add targeted test for tool-call -> final-text(format mismatch) -> tool-call sequence.
+Why this is risky:
+- Behavior can diverge between runtime and eval over time.
+- Future format support requires parallel edits and tests.
 
-Status update (2026-02-19):
-- Closed by resetting `consecutive_tool_steps` in final-text branch (`src/agent/mod.rs:307`).
+Recommendation:
+- Extract shared format validation helper(s) used by both runtime and eval.
 
-### F-005 `search_notes` is non-functional stub (medium)
+### 4. Medium: Provider code paths have avoidable duplication
 
-- Evidence:
-  - `src/tools/mod.rs:149` returns fixed payload with `results: []` regardless of local notes.
-- Impact:
-  - Tool contract implies local note search but behavior is effectively disabled.
-  - Reduces agent usefulness and can mislead prompt behavior/eval expectations.
-- Recommendation:
-  - Implement file-backed search under `NOTES_DIR` with deterministic scoring and `limit`.
-  - Add unit tests for query matching, limit truncation, and no-match behavior.
+There are near-parallel conversion blocks in model client:
+- Tool call parsing: `src/model/client.rs:452` and `src/model/client.rs:475`
+- Request conversion: `src/model/client.rs:595` and `src/model/client.rs:723`
 
-Status update (2026-02-19):
-- Closed by implementing file-backed `search_notes` in `src/tools/mod.rs:161`:
-  - reads note files from `NOTES_DIR`
-  - ranks matches by case-insensitive occurrence count (deterministic tie-breaks)
-  - enforces `limit` and returns structured `total_matches` + `results`
-- Added unit coverage:
-  - `dispatch_search_notes_returns_ranked_results_with_limit`
-  - `dispatch_search_notes_returns_empty_when_notes_dir_is_missing`
-  - `dispatch_search_notes_rejects_empty_query`
+Why this matters:
+- Larger surface area for bugs and inconsistencies.
+- Slower maintenance for provider protocol updates.
 
-### F-006 Missing integration tests for transport parity and error mapping (medium)
+Recommendation:
+- Extract provider-agnostic conversion helpers where possible.
+- Keep only unavoidable provider-specific shape handling local.
 
-- Evidence:
-  - `tests/` directory is absent.
-  - Current suite is unit-focused (`cargo test` passes 63 tests) but lacks full-path integration coverage.
-- Impact:
-  - Regressions in CLI/HTTP parity and status mapping can slip through.
-- Recommendation:
-  - Add integration tests for:
-    - `chat --json` output contract,
-    - HTTP `POST /chat` parity for normal and guardrail-blocked requests,
-    - tool-loop failure/timeout behavior.
+### 5. Low: Repeated runtime settings logging blocks
 
-Status update (2026-02-19):
-- Closed by adding `tests/chat_transport_parity.rs`:
-  - `cli_and_http_share_oversized_input_guardrail`
-  - `http_returns_bad_gateway_for_unreachable_model`
-- Tests run full CLI binary and HTTP server process with isolated env settings.
-- In restricted environments that disallow localhost bind, tests skip cleanly.
+Large repeated logs in:
+- `src/agent/mod.rs:77`
+- `src/agent/mod.rs:104`
+- `src/agent/mod.rs:138`
 
-## Commands run
+Recommendation:
+- Factor to shared `log_runtime_settings(event_name, settings)` helper.
 
-- `cargo fmt --all -- --check` (pass)
-- `cargo clippy --all-targets --all-features -- -D warnings` (pass)
-- `cargo test --all-targets --all-features` (pass, `63/63` tests)
-- `ls -la tests` (`tests/` does not exist)
-- `cargo fmt --all` (pass)
-- `cargo clippy --all-targets --all-features -- -D warnings` (pass, after remediations)
-- `cargo test --all-targets --all-features` (pass, `65/65` tests after remediations)
-- `cargo fmt --all` (pass, after F-001 remediation)
-- `cargo clippy --all-targets --all-features -- -D warnings` (pass, after F-001 remediation)
-- `cargo test --all-targets --all-features` (pass, `66/66` tests after F-001 remediation)
-- `cargo fmt --all` (pass, after F-006 remediation)
-- `cargo clippy --all-targets --all-features -- -D warnings` (pass, after F-006 remediation)
-- `cargo test --all-targets --all-features` (pass, `68/68` tests after F-006 remediation)
-- `cargo fmt --all` (pass, after F-005 remediation)
-- `cargo clippy --all-targets --all-features -- -D warnings` (pass, after F-005 remediation)
-- `cargo test --all-targets --all-features` (pass, `70/70` tests after F-005 remediation)
+### 6. Low: `ToolDispatchError` construction is repetitive
+
+Many repeated `tool_name.to_owned()` + `reason` formatting patterns across `src/tools/mod.rs` (for example `:164`, `:378`, `:622`, `:649`).
+
+Recommendation:
+- Add small constructors/helpers on `ToolDispatchError` for consistent, compact error creation.
+
+### 7. Low: Test setup helpers are duplicated
+
+Patterns appear in several places:
+- Integration env setup: `tests/chat_transport_parity.rs:168`
+- Temp directory helpers in both eval and tools tests.
+
+Recommendation:
+- Extract shared test utilities module for temp paths and common env setup.
+
+### 8. Low: Contract tests for tool metadata can be stricter
+
+Current contract test in `src/agent/mod.rs:853` checks names and `additionalProperties=false` but does not fully assert required fields and schema contract details.
+
+Recommendation:
+- Add stronger schema assertions once metadata is centralized.
+
+## Refactor Plan (Suggested Order)
+
+### Phase 1 (highest impact, lowest contract risk)
+
+1. Replace string-based error classification with typed categories.
+2. Keep existing HTTP behavior (`400`/`502`/`500`) unchanged.
+3. Add explicit tests for category-to-status mapping.
+
+### Phase 2
+
+1. Centralize tool metadata in one module/structure.
+2. Rewire REPL tool listing and model tool definition building to that source.
+3. Add regression tests to lock tool signature/description/schema outputs.
+
+### Phase 3
+
+1. Extract shared answer-format validators.
+2. Use shared validators in both agent runtime and eval.
+3. Add parity tests proving runtime and eval enforce identical format rules.
+
+### Phase 4
+
+1. Deduplicate provider conversion/parsing internals in `model/client.rs`.
+2. Preserve exact external provider behavior.
+3. Add focused adapter tests around tool-call parsing and content extraction.
+
+### Phase 5 (cleanup)
+
+1. Consolidate repeated logging helpers.
+2. Consolidate test setup helpers.
+3. Add error-constructor helpers in tools module.
+
+## Guardrails for Implementation
+
+- Do not change v1 tool interfaces:
+  - `search_notes(query: string, limit: u8)`
+  - `fetch_url(url: string)`
+  - `save_note(title: string, body: string)`
+- Keep unknown-field rejection in tool args.
+- Keep policy enforcement in shared agent/tool path.
+- Preserve transport parity across CLI/eval/HTTP.
+- Keep provider-specific behavior inside model/provider layer.
+
+## Handoff Checklist
+
+For each refactor phase:
+- Compile and run tests.
+- Run quality gates from `docs/TESTING.md`.
+- Confirm no safety-policy regressions (`docs/SAFETY.md`).
+- Update `docs/TASK_BOARD.md` with selected active task and status.
+- Update docs if externally visible behavior changes.
 
 ## Notes
 
-This file is the handoff artifact for session restarts.
+- This review intentionally stays within maintenance/hardening scope (`docs/ROADMAP.md`).
+- No code behavior changes were applied as part of this review document creation.
