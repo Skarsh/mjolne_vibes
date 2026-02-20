@@ -12,7 +12,9 @@ use tracing::{info, warn};
 use crate::agent::{ExecutedToolCall, run_chat_turn};
 use crate::config::AgentSettings;
 use crate::graph::ArchitectureGraph;
-use crate::graph::watch::{GraphRefreshUpdate, GraphWatchHandle, spawn_graph_watch_worker};
+use crate::graph::watch::{
+    GraphRefreshTrigger, GraphRefreshUpdate, GraphWatchHandle, spawn_graph_watch_worker,
+};
 
 pub mod canvas;
 pub mod events;
@@ -30,6 +32,7 @@ use self::renderer::{
 const APP_TITLE: &str = "mjolne_vibes studio";
 const MAX_CANVAS_SUMMARIES: usize = 24;
 const MAX_CANVAS_TOOL_CARDS: usize = 16;
+const MAX_TURN_SNAPSHOTS: usize = 24;
 const CANVAS_PREVIEW_CHAR_LIMIT: usize = 180;
 const MAX_IMPACT_NODE_ANNOTATIONS: usize = 12;
 const MAX_GRAPH_UPDATES_PER_FRAME: usize = 4;
@@ -223,6 +226,34 @@ struct CanvasTurnSummary {
     tool_call_count: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanvasDiffMode {
+    Live,
+    BeforeAfterLatestTurn,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PendingTurnSnapshot {
+    turn_id: u64,
+    started_at: SystemTime,
+    baseline_graph: Option<ArchitectureGraph>,
+    intent_target_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CanvasTurnSnapshot {
+    turn_id: u64,
+    started_at: SystemTime,
+    completed_at: SystemTime,
+    baseline_revision: Option<u64>,
+    outcome_revision: u64,
+    changed_target_ids: Vec<String>,
+    impact_target_ids: Vec<String>,
+    intent_target_ids: Vec<String>,
+    baseline_graph: Option<ArchitectureGraph>,
+    outcome_graph: ArchitectureGraph,
+}
+
 type CanvasSurfaceKind = CanvasSurfaceAdapterKind;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -337,6 +368,10 @@ struct StudioApp {
     canvas_tool_cards: Vec<CanvasToolCard>,
     next_draw_command_sequence: u64,
     next_tool_card_id: u64,
+    next_turn_snapshot_id: u64,
+    pending_turn_snapshot: Option<PendingTurnSnapshot>,
+    turn_snapshots: Vec<CanvasTurnSnapshot>,
+    canvas_diff_mode: CanvasDiffMode,
     turn_summaries: Vec<CanvasTurnSummary>,
     theme_applied: bool,
     turn_in_flight: bool,
@@ -373,6 +408,10 @@ impl StudioApp {
             canvas_tool_cards: Vec::new(),
             next_draw_command_sequence: 0,
             next_tool_card_id: 0,
+            next_turn_snapshot_id: 1,
+            pending_turn_snapshot: None,
+            turn_snapshots: Vec::new(),
+            canvas_diff_mode: CanvasDiffMode::Live,
             turn_summaries: Vec::new(),
             theme_applied: false,
             turn_in_flight: false,
@@ -599,10 +638,20 @@ impl StudioApp {
     }
 
     fn apply_graph_update(&mut self, update: GraphRefreshUpdate) {
+        let prior_graph = self.canvas.graph().cloned();
         let trigger = update.trigger.label().to_owned();
         self.graph_surface
-            .apply_refresh(self.canvas.graph(), &update.graph, &trigger);
-        self.canvas.apply(CanvasOp::set_scene_graph(update.graph));
+            .apply_refresh(prior_graph.as_ref(), &update.graph, &trigger);
+        self.canvas
+            .apply(CanvasOp::set_scene_graph(update.graph.clone()));
+
+        if matches!(
+            update.trigger,
+            GraphRefreshTrigger::TurnCompleted | GraphRefreshTrigger::TurnCompletedAndFilesChanged
+        ) {
+            self.maybe_finalize_turn_snapshot(update.graph, SystemTime::now());
+        }
+
         self.apply_graph_visualization();
         self.render_architecture_overview_scene();
         self.canvas_status = self.graph_surface.refresh_status_label();
@@ -616,6 +665,17 @@ impl StudioApp {
         let Some(graph) = self.canvas.graph().cloned() else {
             return;
         };
+        let overlay_snapshot = if self.canvas_diff_mode == CanvasDiffMode::BeforeAfterLatestTurn {
+            self.turn_snapshots.last()
+        } else {
+            None
+        };
+        let effective_changed = overlay_snapshot
+            .map(|snapshot| snapshot.changed_target_ids.as_slice())
+            .unwrap_or(self.graph_surface.changed_target_ids.as_slice());
+        let effective_impact = overlay_snapshot
+            .map(|snapshot| snapshot.impact_target_ids.as_slice())
+            .unwrap_or(self.graph_surface.impact_target_ids.as_slice());
         let recent_activity = self
             .turn_summaries
             .iter()
@@ -629,9 +689,11 @@ impl StudioApp {
         self.next_draw_command_sequence = self.next_draw_command_sequence.saturating_add(1);
         let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &graph,
-            changed_target_ids: &self.graph_surface.changed_target_ids,
-            impact_target_ids: &self.graph_surface.impact_target_ids,
+            changed_target_ids: effective_changed,
+            impact_target_ids: effective_impact,
             show_impact_overlay: self.graph_surface.impact_overlay_enabled,
+            before_graph: overlay_snapshot.and_then(|snapshot| snapshot.baseline_graph.as_ref()),
+            show_before_after_overlay: overlay_snapshot.is_some(),
             tool_cards: &self.canvas_tool_cards,
             turn_in_flight: self.turn_in_flight,
             canvas_status: &self.canvas_status,
@@ -648,9 +710,15 @@ impl StudioApp {
                 started_at,
             } => {
                 self.turn_in_flight = true;
-                let _ = started_at;
                 self.canvas_status =
                     format!("Running turn for: {}", summarize_for_canvas(&message));
+                self.pending_turn_snapshot = Some(PendingTurnSnapshot {
+                    turn_id: self.next_turn_snapshot_id,
+                    started_at,
+                    baseline_graph: self.canvas.graph().cloned(),
+                    intent_target_ids: Vec::new(),
+                });
+                self.next_turn_snapshot_id = self.next_turn_snapshot_id.saturating_add(1);
             }
             StudioEvent::TurnCompleted { message, result } => {
                 self.turn_in_flight = false;
@@ -663,6 +731,7 @@ impl StudioApp {
             }
             StudioEvent::TurnFailed { message, error } => {
                 self.turn_in_flight = false;
+                self.pending_turn_snapshot = None;
                 self.chat_history.push(ChatEntry::system(format!(
                     "Turn failed for `{}`: {error}",
                     summarize_for_canvas(&message)
@@ -916,6 +985,24 @@ impl StudioApp {
                             if ui.button("Fit").clicked() {
                                 self.canvas_viewport.fit_to_view();
                             }
+                            let before_after_selected =
+                                self.canvas_diff_mode == CanvasDiffMode::BeforeAfterLatestTurn;
+                            let before_after_label = if before_after_selected {
+                                "Before/After On"
+                            } else {
+                                "Before/After"
+                            };
+                            if ui
+                                .selectable_label(before_after_selected, before_after_label)
+                                .clicked()
+                            {
+                                self.canvas_diff_mode = if before_after_selected {
+                                    CanvasDiffMode::Live
+                                } else {
+                                    CanvasDiffMode::BeforeAfterLatestTurn
+                                };
+                                self.render_architecture_overview_scene();
+                            }
                             if ui.button("+").clicked() {
                                 self.canvas_viewport.zoom_in();
                             }
@@ -935,6 +1022,33 @@ impl StudioApp {
 
         let surface_height = ui.available_height().max(240.0);
         self.render_canvas_surface(ui, surface_height);
+    }
+
+    fn maybe_finalize_turn_snapshot(
+        &mut self,
+        outcome_graph: ArchitectureGraph,
+        completed_at: SystemTime,
+    ) {
+        let Some(pending) = self.pending_turn_snapshot.take() else {
+            return;
+        };
+        let snapshot = CanvasTurnSnapshot {
+            turn_id: pending.turn_id,
+            started_at: pending.started_at,
+            completed_at,
+            baseline_revision: pending.baseline_graph.as_ref().map(|graph| graph.revision),
+            outcome_revision: outcome_graph.revision,
+            changed_target_ids: self.graph_surface.changed_target_ids.clone(),
+            impact_target_ids: self.graph_surface.impact_target_ids.clone(),
+            intent_target_ids: pending.intent_target_ids,
+            baseline_graph: pending.baseline_graph,
+            outcome_graph,
+        };
+        self.turn_snapshots.push(snapshot);
+        if self.turn_snapshots.len() > MAX_TURN_SNAPSHOTS {
+            let extra = self.turn_snapshots.len() - MAX_TURN_SNAPSHOTS;
+            self.turn_snapshots.drain(0..extra);
+        }
     }
 
     fn render_chat_entry(&self, ui: &mut egui::Ui, entry: &ChatEntry) {
@@ -1180,9 +1294,9 @@ mod tests {
     use crate::test_support::{remove_dir_if_exists, temp_path};
 
     use super::{
-        CanvasOp, CanvasState, GraphSurfaceState, MAX_GRAPH_UPDATES_PER_FRAME, StudioApp,
-        StudioCommand, StudioEvent, build_highlight_node_ids, graph_change_delta,
-        spawn_runtime_worker, summarize_for_canvas,
+        CanvasDiffMode, CanvasOp, CanvasState, GraphSurfaceState, MAX_GRAPH_UPDATES_PER_FRAME,
+        PendingTurnSnapshot, StudioApp, StudioCommand, StudioEvent, build_highlight_node_ids,
+        graph_change_delta, spawn_runtime_worker, summarize_for_canvas,
     };
 
     #[test]
@@ -1345,6 +1459,105 @@ mod tests {
 
         surface.last_refresh_trigger = Some("turn_completed".to_owned());
         assert_eq!(surface.last_trigger_label(), "turn_completed");
+    }
+
+    #[tokio::test]
+    async fn maybe_finalize_turn_snapshot_records_baseline_and_outcome() {
+        let workspace_root = create_workspace_root("studio-snapshot-record");
+        let settings = studio_test_settings(8);
+        let (command_tx, _command_rx) = unbounded_channel();
+        let (_event_tx, event_rx) = unbounded_channel();
+        let (_graph_update_tx, graph_update_rx) = unbounded_channel();
+        let runtime_handle = Handle::current();
+        let (graph_watch_handle, _graph_watch_rx) =
+            spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
+        let mut app = StudioApp::new(
+            settings,
+            command_tx,
+            event_rx,
+            graph_update_rx,
+            graph_watch_handle.clone(),
+            workspace_root.clone(),
+        );
+
+        let baseline = graph_for_test(1, &["module:crate"], &[]);
+        app.graph_surface.changed_target_ids = vec!["module:crate::tools".to_owned()];
+        app.graph_surface.impact_target_ids = vec!["module:crate".to_owned()];
+        app.pending_turn_snapshot = Some(PendingTurnSnapshot {
+            turn_id: 9,
+            started_at: UNIX_EPOCH,
+            baseline_graph: Some(baseline.clone()),
+            intent_target_ids: vec!["module:crate::tools".to_owned()],
+        });
+
+        let outcome = graph_for_test(2, &["module:crate", "module:crate::tools"], &[]);
+        app.maybe_finalize_turn_snapshot(outcome.clone(), UNIX_EPOCH);
+
+        assert_eq!(app.turn_snapshots.len(), 1);
+        let snapshot = &app.turn_snapshots[0];
+        assert_eq!(snapshot.turn_id, 9);
+        assert_eq!(snapshot.baseline_revision, Some(1));
+        assert_eq!(snapshot.outcome_revision, 2);
+        assert_eq!(snapshot.changed_target_ids, ["module:crate::tools"]);
+        assert_eq!(snapshot.impact_target_ids, ["module:crate"]);
+        assert_eq!(snapshot.intent_target_ids, ["module:crate::tools"]);
+        assert_eq!(snapshot.baseline_graph.as_ref(), Some(&baseline));
+        assert_eq!(snapshot.outcome_graph, outcome);
+
+        graph_watch_handle.shutdown();
+        remove_dir_if_exists(&workspace_root);
+    }
+
+    #[tokio::test]
+    async fn render_architecture_scene_emits_before_after_overlay_when_enabled() {
+        let workspace_root = create_workspace_root("studio-overlay-mode");
+        let settings = studio_test_settings(8);
+        let (command_tx, _command_rx) = unbounded_channel();
+        let (_event_tx, event_rx) = unbounded_channel();
+        let (_graph_update_tx, graph_update_rx) = unbounded_channel();
+        let runtime_handle = Handle::current();
+        let (graph_watch_handle, _graph_watch_rx) =
+            spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
+        let mut app = StudioApp::new(
+            settings,
+            command_tx,
+            event_rx,
+            graph_update_rx,
+            graph_watch_handle.clone(),
+            workspace_root.clone(),
+        );
+
+        let baseline = graph_for_test(1, &["module:crate"], &[]);
+        let outcome = graph_for_test(2, &["module:crate", "module:crate::tools"], &[]);
+        app.canvas.apply(CanvasOp::set_scene_graph(outcome));
+        app.graph_surface.changed_target_ids = vec!["module:crate::tools".to_owned()];
+        app.graph_surface.impact_target_ids = vec!["module:crate".to_owned()];
+        app.canvas_diff_mode = CanvasDiffMode::BeforeAfterLatestTurn;
+        app.turn_snapshots.push(super::CanvasTurnSnapshot {
+            turn_id: 1,
+            started_at: UNIX_EPOCH,
+            completed_at: UNIX_EPOCH,
+            baseline_revision: Some(1),
+            outcome_revision: 2,
+            changed_target_ids: vec!["module:crate::tools".to_owned()],
+            impact_target_ids: vec!["module:crate".to_owned()],
+            intent_target_ids: Vec::new(),
+            baseline_graph: Some(baseline),
+            outcome_graph: graph_for_test(2, &["module:crate", "module:crate::tools"], &[]),
+        });
+
+        app.render_architecture_overview_scene();
+
+        let has_overlay_summary = app
+            .canvas
+            .draw_scene()
+            .shapes()
+            .into_iter()
+            .any(|shape| shape.id == "overlay:before-after-summary");
+        assert!(has_overlay_summary);
+
+        graph_watch_handle.shutdown();
+        remove_dir_if_exists(&workspace_root);
     }
 
     #[tokio::test]

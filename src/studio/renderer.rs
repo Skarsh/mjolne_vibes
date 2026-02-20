@@ -13,6 +13,8 @@ pub struct ArchitectureOverviewRenderInput<'a> {
     pub changed_target_ids: &'a [String],
     pub impact_target_ids: &'a [String],
     pub show_impact_overlay: bool,
+    pub before_graph: Option<&'a ArchitectureGraph>,
+    pub show_before_after_overlay: bool,
     pub tool_cards: &'a [CanvasToolCard],
     pub turn_in_flight: bool,
     pub canvas_status: &'a str,
@@ -34,6 +36,14 @@ struct SubsystemBucket<'a> {
     files: Vec<&'a ArchitectureNode>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NodeDeltaKind {
+    Added,
+    Changed,
+    Impact,
+    Unchanged,
+}
+
 impl ArchitectureOverviewRenderer {
     pub fn render(input: ArchitectureOverviewRenderInput<'_>) -> CanvasDrawCommandBatch {
         let changed = input
@@ -50,6 +60,28 @@ impl ArchitectureOverviewRenderer {
         } else {
             BTreeSet::new()
         };
+        let before_node_ids = input
+            .before_graph
+            .map(|graph| {
+                graph
+                    .nodes
+                    .iter()
+                    .map(|node| node.id.as_str())
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default();
+        let current_node_ids = input
+            .graph
+            .nodes
+            .iter()
+            .map(|node| node.id.as_str())
+            .collect::<BTreeSet<_>>();
+        let added_count = current_node_ids.difference(&before_node_ids).count();
+        let removed_count = before_node_ids.difference(&current_node_ids).count();
+        let changed_count = changed
+            .iter()
+            .filter(|id| before_node_ids.contains(**id))
+            .count();
 
         let node_labels = build_semantic_node_labels(&input.graph.nodes);
 
@@ -86,6 +118,25 @@ impl ArchitectureOverviewRenderer {
                 },
             },
         });
+        if input.show_before_after_overlay && input.before_graph.is_some() {
+            commands.push(CanvasDrawCommand::UpsertShape {
+                shape: CanvasShapeObject {
+                    id: "overlay:before-after-summary".to_owned(),
+                    layer: 7,
+                    kind: CanvasShapeKind::Text,
+                    points: vec![CanvasPoint { x: 220, y: 36 }],
+                    text: Some(format!(
+                        "Δ +{added_count}  -{removed_count}  ~{changed_count}"
+                    )),
+                    style: CanvasStyle {
+                        fill_color: None,
+                        stroke_color: None,
+                        stroke_width_px: None,
+                        text_color: Some("#4d647b".to_owned()),
+                    },
+                },
+            });
+        }
 
         let mut subsystem_group_ids = Vec::new();
         let mut x_cursor = 92;
@@ -117,8 +168,7 @@ impl ArchitectureOverviewRenderer {
                         .unwrap_or(node.display_label.as_str()),
                     *x,
                     *y,
-                    &changed,
-                    &impact,
+                    node_delta_kind(node.id.as_str(), &before_node_ids, &changed, &impact),
                 );
                 fit_ids.push(shape.id.clone());
                 module_shape_ids.push(shape.id.clone());
@@ -143,8 +193,7 @@ impl ArchitectureOverviewRenderer {
                         .unwrap_or(node.display_label.as_str()),
                     *x,
                     *y,
-                    &changed,
-                    &impact,
+                    node_delta_kind(node.id.as_str(), &before_node_ids, &changed, &impact),
                 );
                 fit_ids.push(shape.id.clone());
                 file_shape_ids.push(shape.id.clone());
@@ -176,6 +225,28 @@ impl ArchitectureOverviewRenderer {
 
         let mut edges = input.graph.edges.iter().collect::<Vec<_>>();
         edges.sort_by(|a, b| a.from.cmp(&b.from).then_with(|| a.to.cmp(&b.to)));
+        if input.show_before_after_overlay
+            && let Some(before_graph) = input.before_graph
+        {
+            let mut before_edges = before_graph.edges.iter().collect::<Vec<_>>();
+            before_edges.sort_by(|a, b| a.from.cmp(&b.from).then_with(|| a.to.cmp(&b.to)));
+            for edge in before_edges {
+                commands.push(CanvasDrawCommand::UpsertConnector {
+                    connector: super::events::CanvasConnectorObject {
+                        id: format!("before-edge:{}->{}", edge.from, edge.to),
+                        from_id: format!("node:{}", edge.from),
+                        to_id: format!("node:{}", edge.to),
+                        label: None,
+                        style: CanvasStyle {
+                            fill_color: None,
+                            stroke_color: Some("#d6dee8".to_owned()),
+                            stroke_width_px: Some(1),
+                            text_color: None,
+                        },
+                    },
+                });
+            }
+        }
         for edge in edges {
             let same_subsystem = node_subsystems
                 .get(edge.from.as_str())
@@ -250,18 +321,16 @@ fn build_node_shape(
     label: &str,
     x: i32,
     y: i32,
-    changed: &BTreeSet<&str>,
-    impact: &BTreeSet<&str>,
+    delta_kind: NodeDeltaKind,
 ) -> CanvasShapeObject {
-    let (fill_color, stroke_color) = if changed.contains(node.id.as_str()) {
-        ("#dc7e35", "#88451b")
-    } else if impact.contains(node.id.as_str()) {
-        ("#4f98bf", "#2d6687")
-    } else {
-        match node.kind {
+    let (fill_color, stroke_color) = match delta_kind {
+        NodeDeltaKind::Added => ("#3aa66a", "#1f6642"),
+        NodeDeltaKind::Changed => ("#dc7e35", "#88451b"),
+        NodeDeltaKind::Impact => ("#4f98bf", "#2d6687"),
+        NodeDeltaKind::Unchanged => match node.kind {
             ArchitectureNodeKind::Module => ("#3e7faa", "#22577a"),
             ArchitectureNodeKind::File => ("#4e9164", "#2f6543"),
-        }
+        },
     };
 
     let width = node_shape_width();
@@ -288,6 +357,23 @@ fn build_node_shape(
             stroke_width_px: Some(2),
             text_color: Some("#ffffff".to_owned()),
         },
+    }
+}
+
+fn node_delta_kind<'a>(
+    node_id: &'a str,
+    before_node_ids: &BTreeSet<&'a str>,
+    changed: &BTreeSet<&'a str>,
+    impact: &BTreeSet<&'a str>,
+) -> NodeDeltaKind {
+    if !before_node_ids.is_empty() && !before_node_ids.contains(node_id) {
+        NodeDeltaKind::Added
+    } else if changed.contains(node_id) {
+        NodeDeltaKind::Changed
+    } else if impact.contains(node_id) {
+        NodeDeltaKind::Impact
+    } else {
+        NodeDeltaKind::Unchanged
     }
 }
 
@@ -508,6 +594,8 @@ mod tests {
             changed_target_ids: &["module:crate::tools".to_owned()],
             impact_target_ids: &["file:src/tools.rs".to_owned()],
             show_impact_overlay: true,
+            before_graph: None,
+            show_before_after_overlay: false,
             tool_cards: &cards,
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -519,6 +607,8 @@ mod tests {
             changed_target_ids: &["module:crate::tools".to_owned()],
             impact_target_ids: &["file:src/tools.rs".to_owned()],
             show_impact_overlay: true,
+            before_graph: None,
+            show_before_after_overlay: false,
             tool_cards: &cards,
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -537,6 +627,8 @@ mod tests {
             changed_target_ids: &["module:crate::tools".to_owned()],
             impact_target_ids: &[],
             show_impact_overlay: false,
+            before_graph: None,
+            show_before_after_overlay: false,
             tool_cards: &[],
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -610,6 +702,8 @@ mod tests {
             changed_target_ids: &[],
             impact_target_ids: &[],
             show_impact_overlay: false,
+            before_graph: None,
+            show_before_after_overlay: false,
             tool_cards: &[],
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -662,6 +756,8 @@ mod tests {
             changed_target_ids: &[],
             impact_target_ids: &[],
             show_impact_overlay: false,
+            before_graph: None,
+            show_before_after_overlay: false,
             tool_cards: &[],
             turn_in_flight: true,
             canvas_status: "Running turn for: inspect parser",
@@ -678,6 +774,72 @@ mod tests {
             _ => false,
         });
         assert!(!has_overlay_shape);
+    }
+
+    #[test]
+    fn architecture_renderer_before_after_marks_added_nodes_and_emits_overlay_summary() {
+        let before = ArchitectureGraph {
+            nodes: vec![ArchitectureNode {
+                id: "module:crate".to_owned(),
+                display_label: "crate".to_owned(),
+                kind: ArchitectureNodeKind::Module,
+                path: None,
+            }],
+            edges: Vec::new(),
+            revision: 1,
+            generated_at: UNIX_EPOCH,
+        };
+        let after = ArchitectureGraph {
+            nodes: vec![
+                ArchitectureNode {
+                    id: "module:crate".to_owned(),
+                    display_label: "crate".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+                ArchitectureNode {
+                    id: "module:crate::tools".to_owned(),
+                    display_label: "tools".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+            ],
+            edges: Vec::new(),
+            revision: 2,
+            generated_at: UNIX_EPOCH,
+        };
+
+        let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
+            graph: &after,
+            changed_target_ids: &["module:crate::tools".to_owned()],
+            impact_target_ids: &[],
+            show_impact_overlay: false,
+            before_graph: Some(&before),
+            show_before_after_overlay: true,
+            tool_cards: &[],
+            turn_in_flight: false,
+            canvas_status: "Idle",
+            recent_activity: &[],
+            sequence: 2,
+        });
+
+        let has_overlay_summary = batch.commands.iter().any(|command| match command {
+            super::CanvasDrawCommand::UpsertShape { shape } => {
+                shape.id == "overlay:before-after-summary"
+            }
+            _ => false,
+        });
+        assert!(has_overlay_summary);
+
+        let added_shape_fill = batch.commands.iter().find_map(|command| match command {
+            super::CanvasDrawCommand::UpsertShape { shape }
+                if shape.id == "node:module:crate::tools" =>
+            {
+                shape.style.fill_color.as_deref()
+            }
+            _ => None,
+        });
+        assert_eq!(added_shape_fill, Some("#3aa66a"));
     }
 
     #[test]

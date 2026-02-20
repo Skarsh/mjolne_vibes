@@ -108,7 +108,7 @@ Renderer pipeline direction:
 
 Change-intelligence data model direction:
 - `GraphSurfaceState` remains responsible for graph refresh deltas and impact seed sets.
-- Add typed turn snapshot records (planned):
+- Typed turn snapshot records (implemented in `studio/mod.rs`):
   - turn id / timestamp
   - baseline graph revision
   - post-turn graph revision
@@ -140,7 +140,7 @@ Runtime flow (implemented + planned):
 10. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceAdapter`/`CanvasSurfaceAdapterKind` so additional renderer modules can be added without changing runtime/tool contracts.
 
 Planned UX milestones for this architecture:
-1. Before/after overlay mode with deterministic color semantics.
+1. Before/after overlay mode with deterministic color semantics. (implemented for latest turn)
 2. Per-turn focus mode (highlight changed + immediate impact, dim unchanged).
 3. Timeline/snapshot scrubbing over turn-indexed graph states.
 4. Intent vs outcome mode (planned target set vs changed target set).
