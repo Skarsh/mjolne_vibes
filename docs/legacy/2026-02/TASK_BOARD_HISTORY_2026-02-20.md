@@ -4,6 +4,8 @@ This file archives the previously inlined `Recently completed` section from `doc
 
 ## Archived completed items
 
+- [x] [DC-03] Added `ArchitectureOverviewRenderer` (`src/studio/renderer.rs`) to translate architecture graph + change/impact context + recent tool-card context into deterministic `CanvasDrawCommandBatch` output, with focused renderer translation tests (2026-02-20).
+- [x] [DC-02] Extended `CanvasState` reducer to apply typed draw-command batches (`CanvasOp::ApplyDrawCommandBatch`) with stable-id upsert/delete behavior, stale-sequence protection, deterministic object ordering, and focused reducer tests in `src/studio/canvas.rs` (2026-02-20).
 - [x] [DC-01] Defined typed draw-command contract in `src/studio/events.rs` (`CanvasDrawCommandBatch`, `CanvasDrawCommand`, scene object payload types) and added unknown-field rejection tests (2026-02-20).
 
 - [x] [SG-13] Applied a visual polish pass for native `studio`: refreshed shell palette/spacing hierarchy, upgraded top-bar/chat/canvas control styling, improved metadata chips/composer readability, and enhanced canvas stage rendering (guide grid, lane tinting, legend/tool-card refinement) while preserving runtime behavior (`src/studio/mod.rs`, `src/studio/canvas.rs`, `docs/TASK_BOARD.md`) (2026-02-20).

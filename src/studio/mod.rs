@@ -16,6 +16,7 @@ use crate::graph::watch::{GraphRefreshUpdate, GraphWatchHandle, spawn_graph_watc
 
 pub mod canvas;
 pub mod events;
+pub mod renderer;
 
 use self::canvas::{
     CanvasState, CanvasSurfaceAdapter, CanvasSurfaceAdapterKind, CanvasToolCard, CanvasViewport,

@@ -9,8 +9,6 @@ Current execution board for maintenance work.
 
 ## Active tasks
 
-- [ ] [DC-02] Extend canvas reducer/state to apply draw-command batches directly, with stable-id upsert/delete semantics and deterministic ordering.
-- [ ] [DC-03] Add architecture overview renderer that translates graph snapshots/deltas + agent turn context into generic draw commands.
 - [ ] [DC-04] Route studio refresh/event flow through renderer pipeline so graph-specific visuals are produced by translation layer, not canvas core.
 - [ ] [DC-05] Add test coverage for reducer invariants, renderer translation correctness, and bounded per-frame command drain behavior.
 - [ ] [DC-06] Refine studio UX for “understand agent work” use case (change lanes, in-flight annotations, completed-work summaries) as renderer output.

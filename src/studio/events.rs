@@ -150,6 +150,9 @@ pub enum CanvasOp {
         text: String,
         target_id: Option<String>,
     },
+    ApplyDrawCommandBatch {
+        batch: CanvasDrawCommandBatch,
+    },
     // Legacy graph-specific operation aliases kept for transition compatibility.
     SetGraph {
         graph: ArchitectureGraph,
@@ -193,6 +196,10 @@ impl CanvasOp {
             text: text.into(),
             target_id,
         }
+    }
+
+    pub fn apply_draw_command_batch(batch: CanvasDrawCommandBatch) -> Self {
+        Self::ApplyDrawCommandBatch { batch }
     }
 }
 
@@ -247,6 +254,7 @@ mod tests {
             | CanvasOp::FocusNode { .. }
             | CanvasOp::AddAnnotation { .. }
             | CanvasOp::SetGraph { .. }
+            | CanvasOp::ApplyDrawCommandBatch { .. }
             | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
         }
     }
@@ -275,6 +283,7 @@ mod tests {
             | CanvasOp::SetGraph { .. }
             | CanvasOp::HighlightNodes { .. }
             | CanvasOp::FocusNode { .. }
+            | CanvasOp::ApplyDrawCommandBatch { .. }
             | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
             CanvasOp::AddAnnotation { .. } => panic!("unexpected canvas op"),
         }
@@ -298,6 +307,7 @@ mod tests {
             | CanvasOp::SetGraph { .. }
             | CanvasOp::FocusNode { .. }
             | CanvasOp::AddAnnotation { .. }
+            | CanvasOp::ApplyDrawCommandBatch { .. }
             | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
             CanvasOp::HighlightNodes { .. } => panic!("unexpected canvas op"),
         }
@@ -312,6 +322,7 @@ mod tests {
             | CanvasOp::SetGraph { .. }
             | CanvasOp::HighlightNodes { .. }
             | CanvasOp::AddAnnotation { .. }
+            | CanvasOp::ApplyDrawCommandBatch { .. }
             | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
             CanvasOp::FocusNode { .. } => panic!("unexpected canvas op"),
         }

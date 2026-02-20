@@ -21,6 +21,7 @@ src/
   server/mod.rs    # HTTP transport; delegates to agent loop
   studio/mod.rs    # native egui shell; chat pane + canvas pane
   studio/canvas.rs # canvas state reducer + generic canvas frame/viewport primitives + draw-command rendering
+  studio/renderer.rs # renderer translation layer (domain state -> canvas draw-command batches)
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
@@ -34,6 +35,7 @@ src/
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   studio/mod.rs    # native egui shell; collapsible chat rail + generic-first canvas stage
   studio/canvas.rs # canvas reducer + generic canvas surface shell (frame/viewport) + draw-command rendering
+  studio/renderer.rs # architecture overview renderer translating graph/change context to draw commands
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
@@ -73,6 +75,10 @@ Planned draw-command contract direction:
   - `CanvasDrawCommandBatch`
   - `CanvasDrawCommand`
   - `CanvasShapeObject` / `CanvasConnectorObject` / `CanvasGroupObject` / `CanvasViewportHint`
+- `CanvasState` in `src/studio/canvas.rs` now applies batch updates via `CanvasOp::ApplyDrawCommandBatch` into draw-scene storage with:
+  - stable-id upsert/delete semantics across object types
+  - stale-sequence rejection (`sequence` must be monotonic)
+  - deterministic object ordering for rendering (`layer` + object type + id)
 - Contract requirements:
   - typed payloads only
   - unknown-field rejection

@@ -4,7 +4,10 @@ use eframe::egui;
 
 use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
-use super::events::{CanvasOp, CanvasSceneData};
+use super::events::{
+    CanvasConnectorObject, CanvasDrawCommand, CanvasDrawCommandBatch, CanvasGroupObject, CanvasOp,
+    CanvasSceneData, CanvasShapeObject, CanvasViewportHint,
+};
 
 const MIN_CANVAS_SURFACE_WIDTH: f32 = 320.0;
 const MIN_CANVAS_SURFACE_HEIGHT: f32 = 240.0;
@@ -20,11 +23,21 @@ pub struct CanvasAnnotation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CanvasDrawScene {
+    last_sequence: Option<u64>,
+    shapes: BTreeMap<String, CanvasShapeObject>,
+    connectors: BTreeMap<String, CanvasConnectorObject>,
+    groups: BTreeMap<String, CanvasGroupObject>,
+    viewport_hint: Option<CanvasViewportHint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CanvasState {
     graph: Option<ArchitectureGraph>,
     highlighted_target_ids: Vec<String>,
     focused_target_id: Option<String>,
     annotations: Vec<CanvasAnnotation>,
+    draw_scene: CanvasDrawScene,
 }
 
 impl CanvasState {
@@ -52,6 +65,10 @@ impl CanvasState {
         &self.annotations
     }
 
+    pub fn draw_scene(&self) -> &CanvasDrawScene {
+        &self.draw_scene
+    }
+
     pub fn apply(&mut self, op: CanvasOp) {
         match op {
             CanvasOp::SetSceneData { scene } => {
@@ -69,6 +86,9 @@ impl CanvasState {
                 target_id,
             } => {
                 self.apply_upsert_annotation(id, text, target_id);
+            }
+            CanvasOp::ApplyDrawCommandBatch { batch } => {
+                self.apply_draw_command_batch(batch);
             }
             CanvasOp::SetGraph { graph } => {
                 self.apply_scene_data(CanvasSceneData::ArchitectureGraph { graph });
@@ -131,6 +151,49 @@ impl CanvasState {
         }
     }
 
+    fn apply_draw_command_batch(&mut self, batch: CanvasDrawCommandBatch) {
+        if self
+            .draw_scene
+            .last_sequence
+            .is_some_and(|latest| batch.sequence < latest)
+        {
+            return;
+        }
+
+        for command in batch.commands {
+            match command {
+                CanvasDrawCommand::UpsertShape { shape } => {
+                    self.draw_scene.remove_object_id(&shape.id);
+                    self.draw_scene.shapes.insert(shape.id.clone(), shape);
+                }
+                CanvasDrawCommand::UpsertConnector { connector } => {
+                    self.draw_scene.remove_object_id(&connector.id);
+                    self.draw_scene
+                        .connectors
+                        .insert(connector.id.clone(), connector);
+                }
+                CanvasDrawCommand::UpsertGroup { group } => {
+                    self.draw_scene.remove_object_id(&group.id);
+                    self.draw_scene.groups.insert(group.id.clone(), group);
+                }
+                CanvasDrawCommand::DeleteObject { id } => {
+                    self.draw_scene.remove_object_id(&id);
+                }
+                CanvasDrawCommand::ClearScene => {
+                    self.draw_scene.shapes.clear();
+                    self.draw_scene.connectors.clear();
+                    self.draw_scene.groups.clear();
+                    self.draw_scene.viewport_hint = None;
+                }
+                CanvasDrawCommand::SetViewportHint { hint } => {
+                    self.draw_scene.viewport_hint = Some(hint);
+                }
+            }
+        }
+
+        self.draw_scene.last_sequence = Some(batch.sequence);
+    }
+
     fn contains_target(&self, target_id: &str) -> bool {
         self.graph
             .as_ref()
@@ -167,6 +230,57 @@ impl CanvasState {
                 .as_deref()
                 .is_none_or(|node_id| known_node_ids.contains(node_id))
         });
+    }
+}
+
+impl CanvasDrawScene {
+    pub fn last_sequence(&self) -> Option<u64> {
+        self.last_sequence
+    }
+
+    pub fn shapes(&self) -> Vec<&CanvasShapeObject> {
+        self.shapes.values().collect()
+    }
+
+    pub fn connectors(&self) -> Vec<&CanvasConnectorObject> {
+        self.connectors.values().collect()
+    }
+
+    pub fn groups(&self) -> Vec<&CanvasGroupObject> {
+        self.groups.values().collect()
+    }
+
+    pub fn viewport_hint(&self) -> Option<&CanvasViewportHint> {
+        self.viewport_hint.as_ref()
+    }
+
+    pub fn ordered_object_ids(&self) -> Vec<&str> {
+        let mut entries =
+            Vec::with_capacity(self.shapes.len() + self.groups.len() + self.connectors.len());
+
+        for shape in self.shapes.values() {
+            entries.push((shape.layer, 0_u8, shape.id.as_str()));
+        }
+        for group in self.groups.values() {
+            entries.push((group.layer, 1_u8, group.id.as_str()));
+        }
+        for connector in self.connectors.values() {
+            entries.push((u16::MAX, 2_u8, connector.id.as_str()));
+        }
+
+        entries.sort_unstable_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.cmp(&right.1))
+                .then_with(|| left.2.cmp(right.2))
+        });
+        entries.into_iter().map(|(_, _, id)| id).collect()
+    }
+
+    fn remove_object_id(&mut self, id: &str) {
+        self.shapes.remove(id);
+        self.connectors.remove(id);
+        self.groups.remove(id);
     }
 }
 
@@ -833,11 +947,13 @@ mod tests {
         ArchitectureEdge, ArchitectureEdgeKind, ArchitectureGraph, ArchitectureNode,
         ArchitectureNodeKind,
     };
+    use crate::studio::events::{CanvasPoint, CanvasShapeKind, CanvasStyle};
 
     use super::{
-        CanvasOp, CanvasState, CanvasSurfaceAdapter, CanvasSurfaceAdapterKind, CanvasToolCard,
-        GraphSurfaceAdapterOptions, canvas_content_rect, canvas_desired_size, clipped_label,
-        compute_node_positions,
+        CanvasDrawCommand, CanvasDrawCommandBatch, CanvasGroupObject, CanvasOp, CanvasShapeObject,
+        CanvasState, CanvasSurfaceAdapter, CanvasSurfaceAdapterKind, CanvasToolCard,
+        CanvasViewportHint, GraphSurfaceAdapterOptions, canvas_content_rect, canvas_desired_size,
+        clipped_label, compute_node_positions,
     };
 
     #[test]
@@ -1033,6 +1149,125 @@ mod tests {
     }
 
     #[test]
+    fn draw_command_batch_upsert_delete_and_order_are_deterministic() {
+        let mut state = CanvasState::default();
+        state.apply(CanvasOp::apply_draw_command_batch(CanvasDrawCommandBatch {
+            sequence: 1,
+            commands: vec![
+                CanvasDrawCommand::UpsertShape {
+                    shape: CanvasShapeObject {
+                        id: "shape-b".to_owned(),
+                        layer: 2,
+                        kind: CanvasShapeKind::Rectangle,
+                        points: vec![CanvasPoint { x: 50, y: 20 }, CanvasPoint { x: 120, y: 90 }],
+                        text: Some("B".to_owned()),
+                        style: basic_style(),
+                    },
+                },
+                CanvasDrawCommand::UpsertGroup {
+                    group: CanvasGroupObject {
+                        id: "group-a".to_owned(),
+                        layer: 1,
+                        label: Some("Group".to_owned()),
+                        object_ids: vec!["shape-b".to_owned()],
+                    },
+                },
+                CanvasDrawCommand::UpsertShape {
+                    shape: CanvasShapeObject {
+                        id: "shape-a".to_owned(),
+                        layer: 1,
+                        kind: CanvasShapeKind::Text,
+                        points: vec![CanvasPoint { x: 10, y: 10 }],
+                        text: Some("A".to_owned()),
+                        style: basic_style(),
+                    },
+                },
+                CanvasDrawCommand::DeleteObject {
+                    id: "shape-b".to_owned(),
+                },
+            ],
+        }));
+
+        let scene = state.draw_scene();
+        assert_eq!(scene.last_sequence(), Some(1));
+        assert_eq!(scene.shapes().len(), 1);
+        assert_eq!(scene.shapes()[0].id, "shape-a");
+        assert_eq!(scene.groups().len(), 1);
+        assert_eq!(scene.ordered_object_ids(), ["shape-a", "group-a"]);
+    }
+
+    #[test]
+    fn draw_command_batch_ignores_stale_sequence_updates() {
+        let mut state = CanvasState::default();
+        state.apply(CanvasOp::apply_draw_command_batch(CanvasDrawCommandBatch {
+            sequence: 5,
+            commands: vec![CanvasDrawCommand::UpsertShape {
+                shape: CanvasShapeObject {
+                    id: "shape-1".to_owned(),
+                    layer: 1,
+                    kind: CanvasShapeKind::Rectangle,
+                    points: vec![CanvasPoint { x: 0, y: 0 }, CanvasPoint { x: 4, y: 4 }],
+                    text: None,
+                    style: basic_style(),
+                },
+            }],
+        }));
+        state.apply(CanvasOp::apply_draw_command_batch(CanvasDrawCommandBatch {
+            sequence: 4,
+            commands: vec![CanvasDrawCommand::DeleteObject {
+                id: "shape-1".to_owned(),
+            }],
+        }));
+
+        let scene = state.draw_scene();
+        assert_eq!(scene.last_sequence(), Some(5));
+        assert_eq!(scene.shapes().len(), 1);
+        assert_eq!(scene.shapes()[0].id, "shape-1");
+    }
+
+    #[test]
+    fn draw_command_batch_clear_scene_and_viewport_hint_update_scene_state() {
+        let mut state = CanvasState::default();
+        state.apply(CanvasOp::apply_draw_command_batch(CanvasDrawCommandBatch {
+            sequence: 2,
+            commands: vec![
+                CanvasDrawCommand::UpsertShape {
+                    shape: CanvasShapeObject {
+                        id: "shape-1".to_owned(),
+                        layer: 1,
+                        kind: CanvasShapeKind::Ellipse,
+                        points: vec![CanvasPoint { x: 8, y: 9 }, CanvasPoint { x: 25, y: 30 }],
+                        text: None,
+                        style: basic_style(),
+                    },
+                },
+                CanvasDrawCommand::SetViewportHint {
+                    hint: CanvasViewportHint {
+                        center: Some(CanvasPoint { x: 20, y: 15 }),
+                        zoom_percent: Some(140),
+                        fit_to_object_ids: vec!["shape-1".to_owned()],
+                    },
+                },
+            ],
+        }));
+
+        assert!(state.draw_scene().viewport_hint().is_some());
+        assert_eq!(state.draw_scene().shapes().len(), 1);
+
+        state.apply(CanvasOp::apply_draw_command_batch(CanvasDrawCommandBatch {
+            sequence: 3,
+            commands: vec![CanvasDrawCommand::ClearScene],
+        }));
+
+        let scene = state.draw_scene();
+        assert_eq!(scene.last_sequence(), Some(3));
+        assert!(scene.viewport_hint().is_none());
+        assert!(scene.shapes().is_empty());
+        assert!(scene.connectors().is_empty());
+        assert!(scene.groups().is_empty());
+    }
+
+    #[test]
     fn compute_node_positions_is_deterministic_and_complete() {
         let graph = graph_with_nodes_and_edges(
             1,
@@ -1164,6 +1399,15 @@ mod tests {
             display_label: node_id.to_owned(),
             kind,
             path: None,
+        }
+    }
+
+    fn basic_style() -> CanvasStyle {
+        CanvasStyle {
+            fill_color: Some("#ffffff".to_owned()),
+            stroke_color: Some("#111111".to_owned()),
+            stroke_width_px: Some(1),
+            text_color: Some("#000000".to_owned()),
         }
     }
 }
