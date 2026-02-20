@@ -166,5 +166,5 @@ Implementation notes:
 
 ## Notes
 
-- v1 definition of done remains aligned to `AI_AGENT_RUST_PLAN.md`.
+- v1 definition of done remains aligned to `docs/ROADMAP.md`.
 - Optional Phase 2 upgrades are tracked after v1 completion.

@@ -4,7 +4,7 @@ This file defines how AI coding agents should operate in this repository.
 
 ## Purpose
 
-Build the v1 Rust agent described in `AI_AGENT_RUST_PLAN.md` with a disciplined, test-first, safety-aware workflow.
+Build the v1 Rust agent described in `docs/ROADMAP.md` with a disciplined, test-first, safety-aware workflow.
 
 ## Read order (required)
 
@@ -18,10 +18,9 @@ Build the v1 Rust agent described in `AI_AGENT_RUST_PLAN.md` with a disciplined,
 
 If documents conflict:
 
-1. `AI_AGENT_RUST_PLAN.md` is the baseline for v1 scope and acceptance intent.
-2. `docs/ROADMAP.md` controls current execution phase and implementation order.
-3. `README.md` and `docs/RUNBOOK.md` control current provider/environment defaults.
-4. `docs/ARCHITECTURE.md` and `docs/SAFETY.md` control implementation boundaries.
+1. `docs/ROADMAP.md` is the baseline for v1 scope and acceptance intent.
+2. `README.md` and `docs/RUNBOOK.md` control current provider/environment defaults.
+3. `docs/ARCHITECTURE.md` and `docs/SAFETY.md` control implementation boundaries.
 
 ## Execution rules
 
