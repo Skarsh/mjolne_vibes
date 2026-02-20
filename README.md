@@ -18,7 +18,7 @@ It supports:
 - Canvas direction is a complete draw-command surface (tldraw-style primitives and scene mutations) where higher-level renderers compile domain state into generic draw ops.
 - First renderer target is architecture/workflow visibility for agent activity: show what the agent changed, is changing, and plans to change without requiring raw diff reading.
 - Studio canvas purpose is change-intelligence: make architectural deltas, impact, and turn outcome legible faster than raw diffs.
-- `studio` shell visuals are tuned for readability with guide-grid and lane cues in the canvas stage while keeping canvas chrome minimal.
+- `studio` shell visuals are tuned for readability with guide-grid and subsystem-structured cues in the canvas stage while keeping canvas chrome minimal.
 - Canvas update intents are target-oriented (`SetSceneData`, `SetHighlightedTargets`, `SetFocusedTarget`, `UpsertAnnotation`) with legacy graph-op aliases kept during transition.
 - Canvas metadata/telemetry panels are intentionally minimized so the central surface remains focused on the graph scene.
 - Graph refresh handling stays failure-isolated: refresh failures retry in the background, and UI drains graph updates in bounded batches per frame to preserve chat responsiveness.

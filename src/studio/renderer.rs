@@ -1,5 +1,4 @@
-use std::collections::BTreeSet;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
@@ -29,6 +28,12 @@ pub struct ArchitectureActivitySummary<'a> {
 
 pub struct ArchitectureOverviewRenderer;
 
+#[derive(Default)]
+struct SubsystemBucket<'a> {
+    modules: Vec<&'a ArchitectureNode>,
+    files: Vec<&'a ArchitectureNode>,
+}
+
 impl ArchitectureOverviewRenderer {
     pub fn render(input: ArchitectureOverviewRenderInput<'_>) -> CanvasDrawCommandBatch {
         let changed = input
@@ -48,119 +53,134 @@ impl ArchitectureOverviewRenderer {
 
         let node_labels = build_semantic_node_labels(&input.graph.nodes);
 
-        let mut module_nodes = input
-            .graph
-            .nodes
-            .iter()
-            .filter(|node| node.kind == ArchitectureNodeKind::Module)
-            .collect::<Vec<_>>();
-        let mut file_nodes = input
-            .graph
-            .nodes
-            .iter()
-            .filter(|node| node.kind == ArchitectureNodeKind::File)
-            .collect::<Vec<_>>();
-        module_nodes.sort_by(|a, b| a.id.cmp(&b.id));
-        file_nodes.sort_by(|a, b| a.id.cmp(&b.id));
-
         let mut commands = Vec::new();
-        let mut module_shape_ids = Vec::new();
-        let mut file_shape_ids = Vec::new();
         let mut fit_ids = Vec::new();
-        let module_layout = layout_rows(&module_nodes, &node_labels, 104, 4, 92, 258, 30);
-        for (node, x, y) in &module_layout {
-            let shape = build_node_shape(
-                node,
-                node_labels
-                    .get(node.id.as_str())
-                    .map(String::as_str)
-                    .unwrap_or(node.display_label.as_str()),
-                *x,
-                *y,
-                &changed,
-                &impact,
-            );
-            fit_ids.push(shape.id.clone());
-            module_shape_ids.push(shape.id.clone());
-            commands.push(CanvasDrawCommand::UpsertShape { shape });
+        let mut subsystem_buckets: BTreeMap<String, SubsystemBucket<'_>> = BTreeMap::new();
+        let mut node_subsystems: HashMap<&str, String> = HashMap::new();
+        for node in &input.graph.nodes {
+            let subsystem = subsystem_key(node);
+            node_subsystems.insert(node.id.as_str(), subsystem.clone());
+            let bucket = subsystem_buckets.entry(subsystem).or_default();
+            match node.kind {
+                ArchitectureNodeKind::Module => bucket.modules.push(node),
+                ArchitectureNodeKind::File => bucket.files.push(node),
+            }
         }
-        let module_end_y = module_layout
-            .iter()
-            .map(|(node, _, y)| y + node_shape_height(label_for(node, &node_labels)))
-            .max()
-            .unwrap_or(188);
-        let file_start_y = module_end_y + 112;
-        let file_layout = layout_rows(&file_nodes, &node_labels, file_start_y, 4, 92, 258, 24);
+        for bucket in subsystem_buckets.values_mut() {
+            bucket.modules.sort_by(|a, b| a.id.cmp(&b.id));
+            bucket.files.sort_by(|a, b| a.id.cmp(&b.id));
+        }
+
         commands.push(CanvasDrawCommand::UpsertShape {
             shape: CanvasShapeObject {
-                id: "lane:files-label".to_owned(),
+                id: "systems:title".to_owned(),
                 layer: 5,
                 kind: CanvasShapeKind::Text,
-                points: vec![CanvasPoint {
-                    x: 80,
-                    y: file_start_y - 28,
-                }],
-                text: Some("Files".to_owned()),
+                points: vec![CanvasPoint { x: 84, y: 34 }],
+                text: Some("Systems".to_owned()),
                 style: CanvasStyle {
                     fill_color: None,
                     stroke_color: None,
                     stroke_width_px: None,
-                    text_color: Some("#315f81".to_owned()),
+                    text_color: Some("#255882".to_owned()),
                 },
             },
         });
-        commands.push(CanvasDrawCommand::UpsertShape {
-            shape: CanvasShapeObject {
-                id: "lane:modules-label".to_owned(),
-                layer: 6,
-                kind: CanvasShapeKind::Text,
-                points: vec![CanvasPoint { x: 88, y: 62 }],
-                text: Some("Modules".to_owned()),
-                style: CanvasStyle {
-                    fill_color: None,
-                    stroke_color: None,
-                    stroke_width_px: None,
-                    text_color: Some("#295a86".to_owned()),
-                },
-            },
-        });
-        for (node, x, y) in &file_layout {
-            let shape = build_node_shape(
-                node,
-                node_labels
-                    .get(node.id.as_str())
-                    .map(String::as_str)
-                    .unwrap_or(node.display_label.as_str()),
-                *x,
-                *y,
-                &changed,
-                &impact,
-            );
-            fit_ids.push(shape.id.clone());
-            file_shape_ids.push(shape.id.clone());
-            commands.push(CanvasDrawCommand::UpsertShape { shape });
-        }
 
+        let mut subsystem_group_ids = Vec::new();
+        let mut x_cursor = 92;
+        for (subsystem, bucket) in &subsystem_buckets {
+            commands.push(CanvasDrawCommand::UpsertShape {
+                shape: CanvasShapeObject {
+                    id: format!("system-label:{subsystem}"),
+                    layer: 6,
+                    kind: CanvasShapeKind::Text,
+                    points: vec![CanvasPoint { x: x_cursor, y: 62 }],
+                    text: Some(format!("{} system", clipped_system_label(subsystem))),
+                    style: CanvasStyle {
+                        fill_color: None,
+                        stroke_color: None,
+                        stroke_width_px: None,
+                        text_color: Some("#315f81".to_owned()),
+                    },
+                },
+            });
+
+            let module_layout = layout_column(&bucket.modules, &node_labels, 104, x_cursor, 28);
+            let mut module_shape_ids = Vec::new();
+            for (node, x, y) in &module_layout {
+                let shape = build_node_shape(
+                    node,
+                    node_labels
+                        .get(node.id.as_str())
+                        .map(String::as_str)
+                        .unwrap_or(node.display_label.as_str()),
+                    *x,
+                    *y,
+                    &changed,
+                    &impact,
+                );
+                fit_ids.push(shape.id.clone());
+                module_shape_ids.push(shape.id.clone());
+                commands.push(CanvasDrawCommand::UpsertShape { shape });
+            }
+
+            let module_end_y = module_layout
+                .iter()
+                .map(|(node, _, y)| y + node_shape_height(label_for(node, &node_labels)))
+                .max()
+                .unwrap_or(126);
+            let file_start_y = module_end_y + 74;
+            let file_layout =
+                layout_column(&bucket.files, &node_labels, file_start_y, x_cursor, 22);
+            let mut file_shape_ids = Vec::new();
+            for (node, x, y) in &file_layout {
+                let shape = build_node_shape(
+                    node,
+                    node_labels
+                        .get(node.id.as_str())
+                        .map(String::as_str)
+                        .unwrap_or(node.display_label.as_str()),
+                    *x,
+                    *y,
+                    &changed,
+                    &impact,
+                );
+                fit_ids.push(shape.id.clone());
+                file_shape_ids.push(shape.id.clone());
+                commands.push(CanvasDrawCommand::UpsertShape { shape });
+            }
+
+            let mut object_ids = module_shape_ids;
+            object_ids.extend(file_shape_ids);
+            subsystem_group_ids.push(format!("group:system:{subsystem}"));
+            commands.push(CanvasDrawCommand::UpsertGroup {
+                group: CanvasGroupObject {
+                    id: format!("group:system:{subsystem}"),
+                    layer: 24,
+                    label: Some(format!("system:{subsystem}")),
+                    object_ids,
+                },
+            });
+
+            x_cursor += node_shape_width() + 86;
+        }
         commands.push(CanvasDrawCommand::UpsertGroup {
             group: CanvasGroupObject {
-                id: "group:modules".to_owned(),
-                layer: 10,
-                label: Some("Modules".to_owned()),
-                object_ids: module_shape_ids,
-            },
-        });
-        commands.push(CanvasDrawCommand::UpsertGroup {
-            group: CanvasGroupObject {
-                id: "group:files".to_owned(),
-                layer: 20,
-                label: Some("Files".to_owned()),
-                object_ids: file_shape_ids,
+                id: "group:systems".to_owned(),
+                layer: 30,
+                label: Some("Systems".to_owned()),
+                object_ids: subsystem_group_ids,
             },
         });
 
         let mut edges = input.graph.edges.iter().collect::<Vec<_>>();
         edges.sort_by(|a, b| a.from.cmp(&b.from).then_with(|| a.to.cmp(&b.to)));
         for edge in edges {
+            let same_subsystem = node_subsystems
+                .get(edge.from.as_str())
+                .zip(node_subsystems.get(edge.to.as_str()))
+                .is_some_and(|(from, to)| from == to);
             let style =
                 if changed.contains(edge.from.as_str()) || changed.contains(edge.to.as_str()) {
                     CanvasStyle {
@@ -176,10 +196,17 @@ impl ArchitectureOverviewRenderer {
                         stroke_width_px: Some(2),
                         text_color: None,
                     }
+                } else if same_subsystem {
+                    CanvasStyle {
+                        fill_color: None,
+                        stroke_color: Some("#6f8da9".to_owned()),
+                        stroke_width_px: Some(1),
+                        text_color: None,
+                    }
                 } else {
                     CanvasStyle {
                         fill_color: None,
-                        stroke_color: Some("#89a4bf".to_owned()),
+                        stroke_color: Some("#b5c5d6".to_owned()),
                         stroke_width_px: Some(1),
                         text_color: None,
                     }
@@ -280,14 +307,12 @@ fn node_shape_height(label: &str) -> i32 {
     28 + (lines * 13)
 }
 
-fn layout_rows<'a>(
+fn layout_column<'a>(
     nodes: &'a [&ArchitectureNode],
     labels: &HashMap<&str, String>,
     start_y: i32,
-    columns: usize,
-    start_x: i32,
-    x_step: i32,
-    row_gap: i32,
+    x: i32,
+    gap: i32,
 ) -> Vec<(&'a ArchitectureNode, i32, i32)> {
     if nodes.is_empty() {
         return Vec::new();
@@ -295,16 +320,61 @@ fn layout_rows<'a>(
 
     let mut out = Vec::with_capacity(nodes.len());
     let mut y_cursor = start_y;
-    for row in nodes.chunks(columns.max(1)) {
-        let mut row_height = 0_i32;
-        for (col, node) in row.iter().enumerate() {
-            let x = start_x + (col as i32 * x_step);
-            out.push((*node, x, y_cursor));
-            row_height = row_height.max(node_shape_height(label_for(node, labels)));
-        }
-        y_cursor += row_height + row_gap;
+    for node in nodes {
+        let row_height = node_shape_height(label_for(node, labels));
+        out.push((*node, x, y_cursor));
+        y_cursor += row_height + gap;
     }
     out
+}
+
+fn subsystem_key(node: &ArchitectureNode) -> String {
+    match node.kind {
+        ArchitectureNodeKind::Module => {
+            let raw = node.id.strip_prefix("module:").unwrap_or(node.id.as_str());
+            let parts = raw.split("::").collect::<Vec<_>>();
+            if parts.first() == Some(&"crate") && parts.len() >= 2 {
+                return parts[1].to_owned();
+            }
+            parts.first().copied().unwrap_or("root").to_owned()
+        }
+        ArchitectureNodeKind::File => {
+            if let Some(path) = &node.path {
+                let normalized = path
+                    .strip_prefix("src/")
+                    .or_else(|| path.strip_prefix("./src/"))
+                    .unwrap_or(path.as_str());
+                return normalized
+                    .split('/')
+                    .next()
+                    .filter(|segment| !segment.is_empty() && !segment.ends_with(".rs"))
+                    .unwrap_or("root")
+                    .to_owned();
+            }
+            let raw = node.id.strip_prefix("file:").unwrap_or(node.id.as_str());
+            let normalized = raw.strip_prefix("src/").unwrap_or(raw);
+            normalized
+                .split('/')
+                .next()
+                .filter(|segment| !segment.is_empty() && !segment.ends_with(".rs"))
+                .unwrap_or("root")
+                .to_owned()
+        }
+    }
+}
+
+fn clipped_system_label(label: &str) -> String {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return "root".to_owned();
+    }
+    if trimmed.chars().count() <= 16 {
+        trimmed.to_owned()
+    } else {
+        let mut short = trimmed.chars().take(13).collect::<String>();
+        short.push_str("...");
+        short
+    }
 }
 
 fn build_semantic_node_labels(nodes: &[ArchitectureNode]) -> HashMap<&str, String> {
@@ -494,40 +564,40 @@ mod tests {
         let graph = ArchitectureGraph {
             nodes: vec![
                 ArchitectureNode {
-                    id: "module:a".to_owned(),
+                    id: "module:crate::core::a".to_owned(),
                     display_label: "a".to_owned(),
                     kind: ArchitectureNodeKind::Module,
                     path: None,
                 },
                 ArchitectureNode {
-                    id: "module:b".to_owned(),
+                    id: "module:crate::core::b".to_owned(),
                     display_label: "b".to_owned(),
                     kind: ArchitectureNodeKind::Module,
                     path: None,
                 },
                 ArchitectureNode {
-                    id: "module:c".to_owned(),
+                    id: "module:crate::core::c".to_owned(),
                     display_label: "c".to_owned(),
                     kind: ArchitectureNodeKind::Module,
                     path: None,
                 },
                 ArchitectureNode {
-                    id: "module:d".to_owned(),
+                    id: "module:crate::core::d".to_owned(),
                     display_label: "d".to_owned(),
                     kind: ArchitectureNodeKind::Module,
                     path: None,
                 },
                 ArchitectureNode {
-                    id: "module:e".to_owned(),
+                    id: "module:crate::core::e".to_owned(),
                     display_label: "e".to_owned(),
                     kind: ArchitectureNodeKind::Module,
                     path: None,
                 },
                 ArchitectureNode {
-                    id: "file:f1".to_owned(),
+                    id: "file:src/core/f1.rs".to_owned(),
                     display_label: "f1".to_owned(),
                     kind: ArchitectureNodeKind::File,
-                    path: Some("src/f1.rs".to_owned()),
+                    path: Some("src/core/f1.rs".to_owned()),
                 },
             ],
             edges: Vec::new(),
