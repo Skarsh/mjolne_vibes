@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::collections::HashMap;
 
 use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
@@ -45,6 +46,8 @@ impl ArchitectureOverviewRenderer {
             BTreeSet::new()
         };
 
+        let node_labels = build_semantic_node_labels(&input.graph.nodes);
+
         let mut module_nodes = input
             .graph
             .nodes
@@ -81,18 +84,29 @@ impl ArchitectureOverviewRenderer {
             },
         });
 
-        let module_columns = 4_usize;
-        let module_row_height = 140_i32;
-        for (index, node) in module_nodes.iter().enumerate() {
-            let x = 80 + ((index % 4) as i32 * 250);
-            let y = 100 + ((index / module_columns) as i32 * module_row_height);
-            let shape = build_node_shape(node, x, y, &changed, &impact);
+        let module_layout = layout_rows(&module_nodes, &node_labels, 100, 4, 80, 250, 28);
+        for (node, x, y) in &module_layout {
+            let shape = build_node_shape(
+                node,
+                node_labels
+                    .get(node.id.as_str())
+                    .map(String::as_str)
+                    .unwrap_or(node.display_label.as_str()),
+                *x,
+                *y,
+                &changed,
+                &impact,
+            );
             fit_ids.push(shape.id.clone());
             module_shape_ids.push(shape.id.clone());
             commands.push(CanvasDrawCommand::UpsertShape { shape });
         }
-        let module_rows = module_nodes.len().max(1).div_ceil(module_columns) as i32;
-        let file_start_y = 100 + (module_rows * module_row_height) + 180;
+        let module_end_y = module_layout
+            .iter()
+            .map(|(node, _, y)| y + node_shape_height(label_for(node, &node_labels)))
+            .max()
+            .unwrap_or(180);
+        let file_start_y = module_end_y + 96;
         commands.push(CanvasDrawCommand::UpsertShape {
             shape: CanvasShapeObject {
                 id: "lane:files-label".to_owned(),
@@ -111,10 +125,19 @@ impl ArchitectureOverviewRenderer {
                 },
             },
         });
-        for (index, node) in file_nodes.iter().enumerate() {
-            let x = 80 + ((index % 4) as i32 * 250);
-            let y = file_start_y + ((index / 4) as i32 * 125);
-            let shape = build_node_shape(node, x, y, &changed, &impact);
+        let file_layout = layout_rows(&file_nodes, &node_labels, file_start_y, 4, 80, 250, 24);
+        for (node, x, y) in &file_layout {
+            let shape = build_node_shape(
+                node,
+                node_labels
+                    .get(node.id.as_str())
+                    .map(String::as_str)
+                    .unwrap_or(node.display_label.as_str()),
+                *x,
+                *y,
+                &changed,
+                &impact,
+            );
             fit_ids.push(shape.id.clone());
             file_shape_ids.push(shape.id.clone());
             commands.push(CanvasDrawCommand::UpsertShape { shape });
@@ -262,6 +285,7 @@ impl ArchitectureOverviewRenderer {
 
 fn build_node_shape(
     node: &ArchitectureNode,
+    label: &str,
     x: i32,
     y: i32,
     changed: &BTreeSet<&str>,
@@ -278,6 +302,9 @@ fn build_node_shape(
         }
     };
 
+    let width = node_shape_width();
+    let height = node_shape_height(label);
+
     CanvasShapeObject {
         id: format!("node:{}", node.id),
         layer: match node.kind {
@@ -288,11 +315,11 @@ fn build_node_shape(
         points: vec![
             CanvasPoint { x, y },
             CanvasPoint {
-                x: x + 190,
-                y: y + 64,
+                x: x + width,
+                y: y + height,
             },
         ],
-        text: Some(node.display_label.clone()),
+        text: Some(label.to_owned()),
         style: CanvasStyle {
             fill_color: Some(fill_color.to_owned()),
             stroke_color: Some(stroke_color.to_owned()),
@@ -300,6 +327,152 @@ fn build_node_shape(
             text_color: Some("#ffffff".to_owned()),
         },
     }
+}
+
+fn label_for<'a>(node: &'a ArchitectureNode, labels: &'a HashMap<&str, String>) -> &'a str {
+    labels
+        .get(node.id.as_str())
+        .map(String::as_str)
+        .unwrap_or(node.display_label.as_str())
+}
+
+fn node_shape_width() -> i32 {
+    210
+}
+
+fn node_shape_height(label: &str) -> i32 {
+    let lines = label.lines().count().max(1) as i32;
+    28 + (lines * 13)
+}
+
+fn layout_rows<'a>(
+    nodes: &'a [&ArchitectureNode],
+    labels: &HashMap<&str, String>,
+    start_y: i32,
+    columns: usize,
+    start_x: i32,
+    x_step: i32,
+    row_gap: i32,
+) -> Vec<(&'a ArchitectureNode, i32, i32)> {
+    if nodes.is_empty() {
+        return Vec::new();
+    }
+
+    let mut out = Vec::with_capacity(nodes.len());
+    let mut y_cursor = start_y;
+    for row in nodes.chunks(columns.max(1)) {
+        let mut row_height = 0_i32;
+        for (col, node) in row.iter().enumerate() {
+            let x = start_x + (col as i32 * x_step);
+            out.push((*node, x, y_cursor));
+            row_height = row_height.max(node_shape_height(label_for(node, labels)));
+        }
+        y_cursor += row_height + row_gap;
+    }
+    out
+}
+
+fn build_semantic_node_labels(nodes: &[ArchitectureNode]) -> HashMap<&str, String> {
+    let parts = nodes
+        .iter()
+        .map(|node| (node.id.as_str(), split_node_parts(&node.id)))
+        .collect::<Vec<_>>();
+    let mut labels = HashMap::new();
+
+    for (id, node_parts) in &parts {
+        let unique_suffix_len = (1..=node_parts.len())
+            .find(|suffix_len| {
+                let suffix = node_parts[node_parts.len() - suffix_len..].join("::");
+                parts
+                    .iter()
+                    .filter(|(other_id, _)| *other_id != *id)
+                    .all(|(_, other_parts)| {
+                        let other_suffix = if *suffix_len > other_parts.len() {
+                            other_parts.join("::")
+                        } else {
+                            other_parts[other_parts.len() - suffix_len..].join("::")
+                        };
+                        other_suffix != suffix
+                    })
+            })
+            .unwrap_or(node_parts.len());
+
+        let suffix_start = node_parts.len().saturating_sub(unique_suffix_len);
+        let short = node_parts[suffix_start..].join("::");
+        let context = if suffix_start == 0 {
+            None
+        } else {
+            Some(node_parts[..suffix_start].join("::"))
+        };
+
+        let mut lines = wrap_identifier_lines(&short, 20);
+        if let Some(context) = context {
+            lines.extend(wrap_identifier_lines(&context, 20));
+        }
+        let label = lines.join("\n");
+        labels.insert(*id, label);
+    }
+
+    labels
+}
+
+fn split_node_parts(id: &str) -> Vec<String> {
+    let parts = id
+        .split("::")
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    if parts.is_empty() {
+        vec![id.to_owned()]
+    } else {
+        parts
+    }
+}
+
+fn wrap_identifier_lines(text: &str, max_chars_per_line: usize) -> Vec<String> {
+    if text.is_empty() || max_chars_per_line == 0 {
+        return Vec::new();
+    }
+
+    let parts = text.split("::").collect::<Vec<_>>();
+    let mut lines = Vec::new();
+    let mut current = String::new();
+
+    for part in parts {
+        let segment = if current.is_empty() {
+            part.to_owned()
+        } else {
+            format!("::{part}")
+        };
+
+        if current.chars().count() + segment.chars().count() <= max_chars_per_line {
+            current.push_str(&segment);
+            continue;
+        }
+
+        if !current.is_empty() {
+            lines.push(current);
+            current = String::new();
+        }
+
+        if part.chars().count() <= max_chars_per_line {
+            current.push_str(part);
+        } else {
+            let chunks = part.chars().collect::<Vec<_>>();
+            for chunk in chunks.chunks(max_chars_per_line) {
+                lines.push(chunk.iter().collect::<String>());
+            }
+        }
+    }
+
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(text.to_owned());
+    }
+    lines
 }
 
 #[cfg(test)]
@@ -313,7 +486,7 @@ mod tests {
 
     use super::{
         ArchitectureActivitySummary, ArchitectureOverviewRenderInput, ArchitectureOverviewRenderer,
-        CanvasToolCard,
+        CanvasToolCard, build_semantic_node_labels, split_node_parts, wrap_identifier_lines,
     };
 
     #[test]
@@ -512,6 +685,57 @@ mod tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(summaries.len(), 2);
+    }
+
+    #[test]
+    fn semantic_labels_use_unique_suffix_with_context_line() {
+        let graph = ArchitectureGraph {
+            nodes: vec![
+                ArchitectureNode {
+                    id: "crate::studio::renderer".to_owned(),
+                    display_label: "crate::studio::renderer".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+                ArchitectureNode {
+                    id: "crate::graph::renderer".to_owned(),
+                    display_label: "crate::graph::renderer".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+            ],
+            edges: Vec::new(),
+            revision: 1,
+            generated_at: UNIX_EPOCH,
+        };
+        let labels = build_semantic_node_labels(&graph.nodes);
+        let studio = labels
+            .get("crate::studio::renderer")
+            .expect("studio label exists");
+        let graph_label = labels
+            .get("crate::graph::renderer")
+            .expect("graph label exists");
+        assert!(studio.contains('\n'));
+        assert!(graph_label.contains('\n'));
+        assert_ne!(studio, graph_label);
+    }
+
+    #[test]
+    fn split_node_parts_uses_double_colon_boundaries() {
+        let parts = split_node_parts("crate:studio::renderer::tests");
+        assert_eq!(parts, ["crate:studio", "renderer", "tests"]);
+    }
+
+    #[test]
+    fn wrap_identifier_lines_preserves_full_text_without_ellipsis() {
+        let wrapped = wrap_identifier_lines("crate::very::long::module::path", 10);
+        assert!(wrapped.len() >= 2);
+        assert!(wrapped.iter().all(|line| line.chars().count() <= 10));
+        assert!(!wrapped.join("").contains('…'));
+        assert_eq!(
+            wrapped.join("").replace("::", ""),
+            "crateverylongmodulepath"
+        );
     }
 
     fn graph_fixture() -> ArchitectureGraph {

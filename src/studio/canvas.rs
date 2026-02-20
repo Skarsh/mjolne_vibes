@@ -807,6 +807,7 @@ fn render_draw_scene(
         surface.painter.line_segment([from, to], stroke);
     }
 
+    let mut rect_shapes = Vec::new();
     for shape in scene.shapes() {
         draw_shape(
             &surface.painter,
@@ -814,6 +815,24 @@ fn render_draw_scene(
             viewport,
             surface.frame.center(),
             ui.visuals().text_color(),
+        );
+        if shape.kind == CanvasShapeKind::Rectangle
+            && let Some(rect) = rectangle_shape_rect(shape, viewport, surface.frame.center())
+        {
+            rect_shapes.push((shape.id.as_str(), rect));
+        }
+    }
+
+    if let Some(pointer) = surface.response.hover_pos()
+        && let Some((shape_id, _)) = rect_shapes.iter().find(|(_, rect)| rect.contains(pointer))
+        && let Some(full_id) = shape_id.strip_prefix("node:")
+    {
+        surface.painter.text(
+            surface.frame.left_top() + egui::vec2(16.0, 16.0),
+            egui::Align2::LEFT_TOP,
+            clipped_label(full_id, 64),
+            egui::FontId::proportional(11.0),
+            egui::Color32::from_rgb(43, 57, 76),
         );
     }
 
@@ -868,16 +887,15 @@ fn draw_shape(
 
     match shape.kind {
         CanvasShapeKind::Rectangle => {
-            if points.len() >= 2 {
-                let rect = egui::Rect::from_two_pos(points[0], points[1]);
+            if let Some(rect) = rectangle_shape_rect(shape, viewport, canvas_center) {
                 painter.rect_filled(rect, 8.0, fill_color);
                 painter.rect_stroke(rect, 8.0, stroke, egui::StrokeKind::Outside);
                 if let Some(text) = &shape.text {
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
-                        clipped_label(text, 36),
-                        egui::FontId::proportional(12.0),
+                        text,
+                        egui::FontId::proportional(11.2),
                         text_color,
                     );
                 }
@@ -1124,6 +1142,24 @@ fn clipped_label(label: &str, max_chars: usize) -> String {
         .collect::<String>();
     clipped.push_str("...");
     clipped
+}
+
+fn rectangle_shape_rect(
+    shape: &CanvasShapeObject,
+    viewport: &CanvasViewport,
+    canvas_center: egui::Pos2,
+) -> Option<egui::Rect> {
+    let points = shape
+        .points
+        .iter()
+        .map(|point| {
+            viewport.transformed_position(egui::pos2(point.x as f32, point.y as f32), canvas_center)
+        })
+        .collect::<Vec<_>>();
+    if points.len() < 2 {
+        return None;
+    }
+    Some(egui::Rect::from_two_pos(points[0], points[1]))
 }
 
 #[cfg(test)]
