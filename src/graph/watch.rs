@@ -169,25 +169,28 @@ async fn run_graph_watch_loop(
         if let (Some(deadline), Some(trigger)) = (refresh_deadline, pending_trigger)
             && Instant::now() >= deadline
         {
-            match build_rust_workspace_graph(&workspace_root, revision.saturating_add(1)) {
-                Ok(graph) => {
-                    revision = graph.revision;
-                    if update_tx
-                        .send(GraphRefreshUpdate { graph, trigger })
-                        .is_err()
-                    {
-                        break;
+            let refresh_succeeded =
+                match build_rust_workspace_graph(&workspace_root, revision.saturating_add(1)) {
+                    Ok(graph) => {
+                        revision = graph.revision;
+                        if update_tx
+                            .send(GraphRefreshUpdate { graph, trigger })
+                            .is_err()
+                        {
+                            break;
+                        }
+                        true
                     }
-                }
-                Err(error) => {
-                    warn!(
-                        root = %workspace_root.display(),
-                        trigger = trigger.label(),
-                        error = %error,
-                        "graph refresh failed"
-                    );
-                }
-            }
+                    Err(error) => {
+                        warn!(
+                            root = %workspace_root.display(),
+                            trigger = trigger.label(),
+                            error = %error,
+                            "graph refresh failed"
+                        );
+                        false
+                    }
+                };
 
             debug!(
                 root = %workspace_root.display(),
@@ -195,8 +198,12 @@ async fn run_graph_watch_loop(
                 revision,
                 "graph refresh completed"
             );
-            pending_trigger = None;
-            refresh_deadline = None;
+            if refresh_succeeded {
+                pending_trigger = None;
+                refresh_deadline = None;
+            } else {
+                refresh_deadline = Some(Instant::now() + config.debounce_interval);
+            }
         }
     }
 }

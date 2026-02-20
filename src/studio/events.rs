@@ -46,7 +46,27 @@ impl From<ChatTurnOutcome> for StudioTurnResult {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CanvasSceneData {
+    ArchitectureGraph { graph: ArchitectureGraph },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CanvasOp {
+    SetSceneData {
+        scene: CanvasSceneData,
+    },
+    SetHighlightedTargets {
+        target_ids: Vec<String>,
+    },
+    SetFocusedTarget {
+        target_id: Option<String>,
+    },
+    UpsertAnnotation {
+        id: String,
+        text: String,
+        target_id: Option<String>,
+    },
+    // Legacy graph-specific operation aliases kept for transition compatibility.
     SetGraph {
         graph: ArchitectureGraph,
     },
@@ -64,6 +84,34 @@ pub enum CanvasOp {
     ClearAnnotations,
 }
 
+impl CanvasOp {
+    pub fn set_scene_graph(graph: ArchitectureGraph) -> Self {
+        Self::SetSceneData {
+            scene: CanvasSceneData::ArchitectureGraph { graph },
+        }
+    }
+
+    pub fn set_highlighted_targets(target_ids: Vec<String>) -> Self {
+        Self::SetHighlightedTargets { target_ids }
+    }
+
+    pub fn set_focused_target(target_id: Option<String>) -> Self {
+        Self::SetFocusedTarget { target_id }
+    }
+
+    pub fn upsert_annotation(
+        id: impl Into<String>,
+        text: impl Into<String>,
+        target_id: Option<String>,
+    ) -> Self {
+        Self::UpsertAnnotation {
+            id: id.into(),
+            text: text.into(),
+            target_id,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::{Duration, UNIX_EPOCH};
@@ -71,7 +119,7 @@ mod tests {
     use crate::agent::{ChatTurnOutcome, TurnTraceSummary};
     use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
-    use super::{CanvasOp, StudioTurnResult};
+    use super::{CanvasOp, CanvasSceneData, StudioTurnResult};
 
     #[test]
     fn studio_turn_result_preserves_chat_turn_payload() {
@@ -97,71 +145,130 @@ mod tests {
     }
 
     #[test]
-    fn canvas_set_graph_wraps_graph_payload() {
+    fn canvas_set_scene_graph_wraps_graph_payload() {
         let graph = graph_with_nodes(7, &["module:crate", "module:crate::tools"]);
-        let op = CanvasOp::SetGraph {
-            graph: graph.clone(),
-        };
+        let op = CanvasOp::set_scene_graph(graph.clone());
 
         match op {
-            CanvasOp::SetGraph { graph: actual } => {
-                assert_eq!(actual, graph);
+            CanvasOp::SetSceneData {
+                scene: CanvasSceneData::ArchitectureGraph { graph: actual },
+            } => {
+                assert_eq!(actual, graph)
             }
-            CanvasOp::HighlightNodes { .. }
+            CanvasOp::SetHighlightedTargets { .. }
+            | CanvasOp::SetFocusedTarget { .. }
+            | CanvasOp::UpsertAnnotation { .. }
+            | CanvasOp::HighlightNodes { .. }
             | CanvasOp::FocusNode { .. }
             | CanvasOp::AddAnnotation { .. }
+            | CanvasOp::SetGraph { .. }
             | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
         }
     }
 
     #[test]
-    fn canvas_add_annotation_preserves_fields() {
-        let op = CanvasOp::AddAnnotation {
-            id: "todo-1".to_owned(),
-            text: "inspect parser module".to_owned(),
-            node_id: Some("module:crate::parser".to_owned()),
-        };
+    fn canvas_upsert_annotation_preserves_fields() {
+        let op = CanvasOp::upsert_annotation(
+            "todo-1",
+            "inspect parser module",
+            Some("module:crate::parser".to_owned()),
+        );
 
         match op {
-            CanvasOp::AddAnnotation { id, text, node_id } => {
+            CanvasOp::UpsertAnnotation {
+                id,
+                text,
+                target_id,
+            } => {
                 assert_eq!(id, "todo-1");
                 assert_eq!(text, "inspect parser module");
-                assert_eq!(node_id.as_deref(), Some("module:crate::parser"));
+                assert_eq!(target_id.as_deref(), Some("module:crate::parser"));
             }
-            CanvasOp::SetGraph { .. }
+            CanvasOp::SetSceneData { .. }
+            | CanvasOp::SetHighlightedTargets { .. }
+            | CanvasOp::SetFocusedTarget { .. }
+            | CanvasOp::SetGraph { .. }
             | CanvasOp::HighlightNodes { .. }
             | CanvasOp::FocusNode { .. }
             | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
+            CanvasOp::AddAnnotation { .. } => panic!("unexpected canvas op"),
         }
     }
 
     #[test]
-    fn canvas_highlight_and_focus_include_node_ids() {
-        let highlight = CanvasOp::HighlightNodes {
-            node_ids: vec!["module:crate".to_owned(), "module:crate::tools".to_owned()],
-        };
-        let focus = CanvasOp::FocusNode {
-            node_id: Some("module:crate::tools".to_owned()),
-        };
+    fn canvas_highlight_and_focus_include_target_ids() {
+        let highlight = CanvasOp::set_highlighted_targets(vec![
+            "module:crate".to_owned(),
+            "module:crate::tools".to_owned(),
+        ]);
+        let focus = CanvasOp::set_focused_target(Some("module:crate::tools".to_owned()));
 
         match highlight {
-            CanvasOp::HighlightNodes { node_ids } => {
-                assert_eq!(node_ids, vec!["module:crate", "module:crate::tools"]);
+            CanvasOp::SetHighlightedTargets { target_ids } => {
+                assert_eq!(target_ids, vec!["module:crate", "module:crate::tools"]);
             }
-            CanvasOp::SetGraph { .. }
+            CanvasOp::SetSceneData { .. }
+            | CanvasOp::SetFocusedTarget { .. }
+            | CanvasOp::UpsertAnnotation { .. }
+            | CanvasOp::SetGraph { .. }
             | CanvasOp::FocusNode { .. }
             | CanvasOp::AddAnnotation { .. }
             | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
+            CanvasOp::HighlightNodes { .. } => panic!("unexpected canvas op"),
         }
 
         match focus {
-            CanvasOp::FocusNode { node_id } => {
-                assert_eq!(node_id.as_deref(), Some("module:crate::tools"));
+            CanvasOp::SetFocusedTarget { target_id } => {
+                assert_eq!(target_id.as_deref(), Some("module:crate::tools"));
             }
-            CanvasOp::SetGraph { .. }
+            CanvasOp::SetSceneData { .. }
+            | CanvasOp::SetHighlightedTargets { .. }
+            | CanvasOp::UpsertAnnotation { .. }
+            | CanvasOp::SetGraph { .. }
             | CanvasOp::HighlightNodes { .. }
             | CanvasOp::AddAnnotation { .. }
             | CanvasOp::ClearAnnotations => panic!("unexpected canvas op"),
+            CanvasOp::FocusNode { .. } => panic!("unexpected canvas op"),
+        }
+    }
+
+    #[test]
+    fn legacy_graph_specific_ops_remain_constructible() {
+        let graph = graph_with_nodes(3, &["module:crate"]);
+        let set_graph = CanvasOp::SetGraph {
+            graph: graph.clone(),
+        };
+        let highlight_nodes = CanvasOp::HighlightNodes {
+            node_ids: vec!["module:crate".to_owned()],
+        };
+        let focus_node = CanvasOp::FocusNode {
+            node_id: Some("module:crate".to_owned()),
+        };
+        let add_annotation = CanvasOp::AddAnnotation {
+            id: "legacy".to_owned(),
+            text: "legacy path".to_owned(),
+            node_id: Some("module:crate".to_owned()),
+        };
+
+        match set_graph {
+            CanvasOp::SetGraph { graph: actual } => assert_eq!(actual, graph),
+            _ => panic!("expected legacy set graph op"),
+        }
+        match highlight_nodes {
+            CanvasOp::HighlightNodes { node_ids } => assert_eq!(node_ids, ["module:crate"]),
+            _ => panic!("expected legacy highlight nodes op"),
+        }
+        match focus_node {
+            CanvasOp::FocusNode { node_id } => assert_eq!(node_id.as_deref(), Some("module:crate")),
+            _ => panic!("expected legacy focus node op"),
+        }
+        match add_annotation {
+            CanvasOp::AddAnnotation { id, text, node_id } => {
+                assert_eq!(id, "legacy");
+                assert_eq!(text, "legacy path");
+                assert_eq!(node_id.as_deref(), Some("module:crate"));
+            }
+            _ => panic!("expected legacy add annotation op"),
         }
     }
 

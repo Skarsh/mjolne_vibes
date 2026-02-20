@@ -4,7 +4,7 @@ use eframe::egui;
 
 use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
-use super::events::CanvasOp;
+use super::events::{CanvasOp, CanvasSceneData};
 
 const MIN_CANVAS_SURFACE_WIDTH: f32 = 320.0;
 const MIN_CANVAS_SURFACE_HEIGHT: f32 = 240.0;
@@ -22,8 +22,8 @@ pub struct CanvasAnnotation {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CanvasState {
     graph: Option<ArchitectureGraph>,
-    highlighted_node_ids: Vec<String>,
-    focused_node_id: Option<String>,
+    highlighted_target_ids: Vec<String>,
+    focused_target_id: Option<String>,
     annotations: Vec<CanvasAnnotation>,
 }
 
@@ -32,12 +32,20 @@ impl CanvasState {
         self.graph.as_ref()
     }
 
+    pub fn highlighted_target_ids(&self) -> &[String] {
+        &self.highlighted_target_ids
+    }
+
     pub fn highlighted_node_ids(&self) -> &[String] {
-        &self.highlighted_node_ids
+        self.highlighted_target_ids()
+    }
+
+    pub fn focused_target_id(&self) -> Option<&str> {
+        self.focused_target_id.as_deref()
     }
 
     pub fn focused_node_id(&self) -> Option<&str> {
-        self.focused_node_id.as_deref()
+        self.focused_target_id()
     }
 
     pub fn annotations(&self) -> &[CanvasAnnotation] {
@@ -46,51 +54,90 @@ impl CanvasState {
 
     pub fn apply(&mut self, op: CanvasOp) {
         match op {
+            CanvasOp::SetSceneData { scene } => {
+                self.apply_scene_data(scene);
+            }
+            CanvasOp::SetHighlightedTargets { target_ids } => {
+                self.apply_set_highlighted_targets(target_ids);
+            }
+            CanvasOp::SetFocusedTarget { target_id } => {
+                self.apply_set_focused_target(target_id);
+            }
+            CanvasOp::UpsertAnnotation {
+                id,
+                text,
+                target_id,
+            } => {
+                self.apply_upsert_annotation(id, text, target_id);
+            }
             CanvasOp::SetGraph { graph } => {
-                self.graph = Some(graph);
-                self.prune_unknown_node_references();
+                self.apply_scene_data(CanvasSceneData::ArchitectureGraph { graph });
             }
             CanvasOp::HighlightNodes { node_ids } => {
-                let mut seen = BTreeSet::new();
-                let mut filtered = Vec::with_capacity(node_ids.len());
-                for node_id in node_ids {
-                    if !self.contains_node(&node_id) || !seen.insert(node_id.clone()) {
-                        continue;
-                    }
-                    filtered.push(node_id);
-                }
-                self.highlighted_node_ids = filtered;
+                self.apply_set_highlighted_targets(node_ids);
             }
             CanvasOp::FocusNode { node_id } => {
-                self.focused_node_id = node_id.filter(|candidate| self.contains_node(candidate));
+                self.apply_set_focused_target(node_id);
             }
             CanvasOp::AddAnnotation { id, text, node_id } => {
-                if node_id
-                    .as_deref()
-                    .is_some_and(|candidate| !self.contains_node(candidate))
-                {
-                    return;
-                }
-
-                if let Some(existing) = self.annotations.iter_mut().find(|entry| entry.id == id) {
-                    existing.text = text;
-                    existing.node_id = node_id;
-                } else {
-                    self.annotations
-                        .push(CanvasAnnotation { id, text, node_id });
-                }
+                self.apply_upsert_annotation(id, text, node_id);
             }
             CanvasOp::ClearAnnotations => self.annotations.clear(),
         }
     }
 
-    fn contains_node(&self, node_id: &str) -> bool {
-        self.graph
-            .as_ref()
-            .is_some_and(|graph| graph.nodes.iter().any(|node| node.id == node_id))
+    fn apply_scene_data(&mut self, scene: CanvasSceneData) {
+        match scene {
+            CanvasSceneData::ArchitectureGraph { graph } => {
+                self.graph = Some(graph);
+                self.prune_unknown_target_references();
+            }
+        }
     }
 
-    fn prune_unknown_node_references(&mut self) {
+    fn apply_set_highlighted_targets(&mut self, target_ids: Vec<String>) {
+        let mut seen = BTreeSet::new();
+        let mut filtered = Vec::with_capacity(target_ids.len());
+        for target_id in target_ids {
+            if !self.contains_target(&target_id) || !seen.insert(target_id.clone()) {
+                continue;
+            }
+            filtered.push(target_id);
+        }
+        self.highlighted_target_ids = filtered;
+    }
+
+    fn apply_set_focused_target(&mut self, target_id: Option<String>) {
+        self.focused_target_id = target_id.filter(|candidate| self.contains_target(candidate));
+    }
+
+    fn apply_upsert_annotation(&mut self, id: String, text: String, target_id: Option<String>) {
+        if target_id
+            .as_deref()
+            .is_some_and(|candidate| !self.contains_target(candidate))
+        {
+            return;
+        }
+
+        if let Some(existing) = self.annotations.iter_mut().find(|entry| entry.id == id) {
+            existing.text = text;
+            existing.node_id = target_id;
+        } else {
+            self.annotations.push(CanvasAnnotation {
+                id,
+                text,
+                node_id: target_id,
+            });
+        }
+    }
+
+    fn contains_target(&self, target_id: &str) -> bool {
+        self.graph
+            .as_ref()
+            .is_some_and(|graph| graph.nodes.iter().any(|node| node.id == target_id))
+    }
+
+    fn prune_unknown_target_references(&mut self) {
         let known_node_ids = self
             .graph
             .as_ref()
@@ -103,15 +150,15 @@ impl CanvasState {
             })
             .unwrap_or_default();
 
-        self.highlighted_node_ids
+        self.highlighted_target_ids
             .retain(|node_id| known_node_ids.contains(node_id.as_str()));
 
         if self
-            .focused_node_id
+            .focused_target_id
             .as_ref()
             .is_some_and(|node_id| !known_node_ids.contains(node_id.as_str()))
         {
-            self.focused_node_id = None;
+            self.focused_target_id = None;
         }
 
         self.annotations.retain(|annotation| {
@@ -348,7 +395,7 @@ fn render_graph_snapshot(
         surface.painter.text(
             surface.frame.center(),
             egui::Align2::CENTER_CENTER,
-            "Graph preview pending initial refresh",
+            "Canvas preview pending initial refresh",
             egui::FontId::proportional(13.0),
             ui.visuals().weak_text_color(),
         );
@@ -379,7 +426,7 @@ fn render_graph_snapshot(
         BTreeSet::new()
     };
     let highlighted = state
-        .highlighted_node_ids()
+        .highlighted_target_ids()
         .iter()
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
@@ -426,7 +473,7 @@ fn render_graph_snapshot(
         let is_changed = changed.contains(node.id.as_str());
         let is_impact = impact.contains(node.id.as_str()) && !is_changed;
         let is_focused = state
-            .focused_node_id()
+            .focused_target_id()
             .is_some_and(|focused| focused == node.id);
         let is_highlighted = highlighted.contains(node.id.as_str());
         let is_hovered = hovered_node_id
@@ -812,6 +859,73 @@ mod tests {
 
         state.apply(CanvasOp::ClearAnnotations);
         assert!(state.annotations().is_empty());
+    }
+
+    #[test]
+    fn generic_canvas_intent_ops_update_targets_and_annotations() {
+        let mut state = CanvasState::default();
+        state.apply(CanvasOp::set_scene_graph(graph_with_nodes(
+            1,
+            &["module:crate", "module:crate::tools"],
+        )));
+        state.apply(CanvasOp::set_highlighted_targets(vec![
+            "module:crate".to_owned(),
+            "module:missing".to_owned(),
+            "module:crate".to_owned(),
+        ]));
+        state.apply(CanvasOp::set_focused_target(Some(
+            "module:crate".to_owned(),
+        )));
+        state.apply(CanvasOp::upsert_annotation(
+            "generic",
+            "generic annotation",
+            Some("module:crate".to_owned()),
+        ));
+
+        assert_eq!(state.highlighted_target_ids(), ["module:crate"]);
+        assert_eq!(state.focused_target_id(), Some("module:crate"));
+        // Legacy getters remain available during transition.
+        assert_eq!(state.highlighted_node_ids(), ["module:crate"]);
+        assert_eq!(state.focused_node_id(), Some("module:crate"));
+        assert_eq!(state.annotations().len(), 1);
+        assert_eq!(state.annotations()[0].id, "generic");
+    }
+
+    #[test]
+    fn legacy_and_generic_intents_reduce_to_same_canvas_state() {
+        let graph = graph_with_nodes(1, &["module:crate", "module:crate::tools"]);
+
+        let mut legacy = CanvasState::default();
+        legacy.apply(CanvasOp::SetGraph {
+            graph: graph.clone(),
+        });
+        legacy.apply(CanvasOp::HighlightNodes {
+            node_ids: vec!["module:crate".to_owned()],
+        });
+        legacy.apply(CanvasOp::FocusNode {
+            node_id: Some("module:crate".to_owned()),
+        });
+        legacy.apply(CanvasOp::AddAnnotation {
+            id: "a".to_owned(),
+            text: "legacy".to_owned(),
+            node_id: Some("module:crate".to_owned()),
+        });
+
+        let mut generic = CanvasState::default();
+        generic.apply(CanvasOp::set_scene_graph(graph));
+        generic.apply(CanvasOp::set_highlighted_targets(vec![
+            "module:crate".to_owned(),
+        ]));
+        generic.apply(CanvasOp::set_focused_target(Some(
+            "module:crate".to_owned(),
+        )));
+        generic.apply(CanvasOp::upsert_annotation(
+            "a",
+            "legacy",
+            Some("module:crate".to_owned()),
+        ));
+
+        assert_eq!(legacy, generic);
     }
 
     #[test]

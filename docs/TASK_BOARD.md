@@ -10,12 +10,7 @@ Current execution board for maintenance work.
 
 ## Active tasks
 
-- [ ] [SG-07] Evolve `CanvasOp`/canvas state toward generic drawing-intent primitives while preserving compatibility with current graph operations during transition (`src/studio/events.rs`, `src/studio/canvas.rs`).
-- [ ] [SG-08] Keep graph watch + diff/highlight logic isolated from generic canvas shell behavior; preserve non-blocking chat turn behavior and failure isolation (`src/graph/watch.rs`, `src/studio/mod.rs`).
-- [ ] [SG-09] Add/adjust reducer and rendering tests for the new generic-vs-graph boundaries and toolbar/inspector behavior (`src/studio/canvas.rs`, `src/studio/mod.rs` tests).
-- [ ] [SG-10] Add integration coverage for studio event flow and non-blocking refresh behavior under active turns (promoted from backlog) (`tests/` and/or `src/studio/*` integration harness).
-- [ ] [SG-11] Update docs to reflect the generic canvas contract and surface adapter model (`docs/ARCHITECTURE.md`, `README.md`).
-- [ ] [SG-12] Final hardening pass: run full quality gates, polish copy/labels to generic canvas language, and move completed SG tasks to history (`docs/TASK_BOARD.md`, `docs/TESTING.md` commands).
+- None currently.
 
 ## Backlog candidates
 
@@ -23,6 +18,12 @@ Current execution board for maintenance work.
 
 ## Recently completed
 
+- [x] [SG-12] Final hardening pass complete: ran full quality gates (`fmt`, `clippy`, `test`), polished remaining canvas copy to generic surface language, and finalized SG task progression in board history (`src/studio/mod.rs`, `src/studio/canvas.rs`, `README.md`, `docs/ARCHITECTURE.md`, `docs/TASK_BOARD.md`) (2026-02-20).
+- [x] [SG-11] Updated docs to reflect the generic canvas contract, adapter-based surface dispatch model, target-oriented canvas intents, and graph-refresh resilience semantics (`docs/ARCHITECTURE.md`, `README.md`) (2026-02-20).
+- [x] [SG-10] Added studio integration-style coverage for runtime event flow and bounded/non-blocking graph-refresh drain behavior (`runtime_worker_emits_failed_turn_and_turn_completion_graph_refresh`, `drain_graph_updates_processes_bounded_batch_per_frame`) in `src/studio/mod.rs` tests (2026-02-20).
+- [x] [SG-09] Expanded reducer/rendering coverage for generic-vs-graph transition and graph-options/inspector behaviors (legacy-vs-generic reducer parity, overlay toggle effects, trigger label/default handling) across `src/studio/canvas.rs` and `src/studio/mod.rs` tests (2026-02-20).
+- [x] [SG-08] Isolated graph-refresh diff/highlight concerns behind `GraphSurfaceState`, bounded per-frame graph update draining to keep UI/chat responsive, and hardened graph-watch failure recovery with debounced retries after refresh errors (`src/studio/mod.rs`, `src/graph/watch.rs`) (2026-02-20).
+- [x] [SG-07] Evolved `CanvasOp`/canvas state with generic target-oriented drawing intents (`SetSceneData`, `SetHighlightedTargets`, `SetFocusedTarget`, `UpsertAnnotation`) while keeping legacy graph-specific op aliases for transition compatibility (`src/studio/events.rs`, `src/studio/canvas.rs`, `src/studio/mod.rs`) (2026-02-20).
 - [x] [SG-06] Introduced a canvas surface adapter path so graph rendering is dispatched as one surface implementation (`CanvasSurfaceAdapter`/`GraphSurfaceAdapterOptions`) rather than direct canvas-core coupling (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-20).
 - [x] [SG-05] Refactored canvas rendering boundaries by extracting reusable canvas frame/layout + viewport input handling from graph-specific drawing, and added focused layout boundary tests (`src/studio/canvas.rs`) (2026-02-20).
 - [x] [SG-04] Added an opt-in graph inspector card with graph-specific telemetry (revision, node/edge counts, changed/impact counts, refresh trigger) and kept it hidden by default behind graph options (`src/studio/mod.rs`) (2026-02-20).

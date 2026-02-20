@@ -44,11 +44,21 @@ Canvas operation contract:
   - `revision` (monotonic refresh id)
   - `generated_at` (timestamp)
 - `CanvasOp`:
-  - `SetGraph`
-  - `HighlightNodes`
-  - `FocusNode`
-  - `AddAnnotation`
+  - `SetSceneData` (`CanvasSceneData::ArchitectureGraph` in v0)
+  - `SetHighlightedTargets`
+  - `SetFocusedTarget`
+  - `UpsertAnnotation`
   - `ClearAnnotations`
+  - Legacy transition aliases still accepted:
+    - `SetGraph`
+    - `HighlightNodes`
+    - `FocusNode`
+    - `AddAnnotation`
+
+Canvas surface adapter contract:
+- `CanvasSurfaceAdapterKind::ArchitectureGraph`
+- `CanvasSurfaceAdapter::ArchitectureGraph { GraphSurfaceAdapterOptions }`
+- `CanvasSurfaceAdapter::render(...)` is the surface dispatch point used by `studio/mod.rs`.
 
 Runtime flow (implemented + planned):
 1. User sends chat input from `studio`.
@@ -57,18 +67,20 @@ Runtime flow (implemented + planned):
 4. Background graph worker refreshes architecture graph on:
    - file-watch events (debounced)
    - chat-turn completion
-5. `studio` applies typed `CanvasOp` updates and re-renders canvas without blocking chat.
-6. On each post-startup graph refresh, `studio` diffs old/new graph snapshots to:
+   - refresh failures are isolated and retried on the debounce interval without failing chat turns
+5. `studio` drains graph updates in bounded batches per frame to keep the canvas/chat shell responsive under update bursts.
+6. `studio` applies typed `CanvasOp` updates and re-renders canvas without blocking chat.
+7. On each post-startup graph refresh, `studio` (via `GraphSurfaceState`) diffs old/new graph snapshots to:
    - highlight changed nodes
    - optionally include 1-hop impact nodes when the graph overlay toggle is enabled
    - publish overlay annotations for changed/impact summaries
-7. `studio/canvas.rs` provides generic canvas surface behavior (shared frame sizing, content insets, viewport drag/zoom input), and the graph surface renderer layers on top with:
+8. `studio/canvas.rs` provides generic canvas surface behavior (shared frame sizing, content insets, viewport drag/zoom input), and the graph surface renderer layers on top with:
    - pan + scroll-wheel zoom viewport controls
    - fit/reset controls surfaced in the canvas toolbar (generic default controls)
    - tool-call cards overlaid on-canvas from executed agent tool calls
    - graph-specific legend/hover hints gated behind graph options (opt-in)
-8. `studio/mod.rs` exposes opt-in graph controls and telemetry (impact overlay, legend, inspector) under `Graph options` so default canvas chrome remains generic.
-9. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceKind` + typed render options so additional non-graph surfaces can be added without changing runtime/tool contracts.
+9. `studio/mod.rs` exposes opt-in graph controls and telemetry (impact overlay, legend, inspector) under `Surface options` so default canvas chrome remains generic.
+10. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceAdapter`/`CanvasSurfaceAdapterKind` so additional non-graph surfaces can be added without changing runtime/tool contracts.
 
 Planned failure handling:
 - Canvas or graph refresh failures must not fail chat turns.

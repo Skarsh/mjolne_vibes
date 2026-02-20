@@ -28,6 +28,7 @@ const MAX_CANVAS_SUMMARIES: usize = 24;
 const MAX_CANVAS_TOOL_CARDS: usize = 16;
 const CANVAS_PREVIEW_CHAR_LIMIT: usize = 180;
 const MAX_IMPACT_NODE_ANNOTATIONS: usize = 12;
+const MAX_GRAPH_UPDATES_PER_FRAME: usize = 4;
 
 fn studio_text() -> egui::Color32 {
     egui::Color32::from_rgb(27, 35, 47)
@@ -208,6 +209,99 @@ struct CanvasTurnSummary {
 
 type CanvasSurfaceKind = CanvasSurfaceAdapterKind;
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct GraphSurfaceState {
+    changed_target_ids: Vec<String>,
+    impact_target_ids: Vec<String>,
+    impact_overlay_enabled: bool,
+    legend_enabled: bool,
+    inspector_enabled: bool,
+    last_refresh_trigger: Option<String>,
+}
+
+impl GraphSurfaceState {
+    fn apply_refresh(
+        &mut self,
+        previous_graph: Option<&ArchitectureGraph>,
+        current_graph: &ArchitectureGraph,
+        trigger_label: &str,
+    ) {
+        let delta = graph_change_delta(previous_graph, current_graph);
+        self.changed_target_ids = delta.changed_node_ids;
+        self.impact_target_ids = delta.impact_node_ids;
+        self.last_refresh_trigger = Some(trigger_label.to_owned());
+    }
+
+    fn apply_visualization(&self, canvas: &mut CanvasState) {
+        canvas.apply(CanvasOp::set_highlighted_targets(
+            self.highlight_target_ids(),
+        ));
+        canvas.apply(CanvasOp::ClearAnnotations);
+        if self.changed_target_ids.is_empty() {
+            return;
+        }
+
+        canvas.apply(CanvasOp::upsert_annotation(
+            "changed-summary",
+            format!("Changed nodes: {}", self.changed_target_ids.len()),
+            None,
+        ));
+
+        if !self.impact_overlay_enabled {
+            return;
+        }
+
+        canvas.apply(CanvasOp::upsert_annotation(
+            "impact-summary",
+            format!("1-hop impact nodes: {}", self.impact_target_ids.len()),
+            None,
+        ));
+
+        for target_id in self
+            .impact_target_ids
+            .iter()
+            .take(MAX_IMPACT_NODE_ANNOTATIONS)
+            .cloned()
+        {
+            canvas.apply(CanvasOp::upsert_annotation(
+                format!("impact:{target_id}"),
+                "1-hop impact",
+                Some(target_id),
+            ));
+        }
+    }
+
+    fn highlight_target_ids(&self) -> Vec<String> {
+        build_highlight_node_ids(
+            &self.changed_target_ids,
+            &self.impact_target_ids,
+            self.impact_overlay_enabled,
+        )
+    }
+
+    fn refresh_status_label(&self) -> String {
+        if self.changed_target_ids.is_empty() {
+            "Canvas refreshed".to_owned()
+        } else {
+            format!(
+                "Canvas refreshed ({} changed node{})",
+                self.changed_target_ids.len(),
+                if self.changed_target_ids.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
+            )
+        }
+    }
+
+    fn last_trigger_label(&self) -> &str {
+        self.last_refresh_trigger
+            .as_deref()
+            .unwrap_or("not yet refreshed")
+    }
+}
+
 struct StudioApp {
     settings: AgentSettings,
     workspace_root: PathBuf,
@@ -219,12 +313,7 @@ struct StudioApp {
     chat_history: Vec<ChatEntry>,
     canvas: CanvasState,
     canvas_status: String,
-    changed_node_ids: Vec<String>,
-    impact_node_ids: Vec<String>,
-    impact_overlay_enabled: bool,
-    graph_legend_enabled: bool,
-    graph_inspector_enabled: bool,
-    graph_last_trigger: Option<String>,
+    graph_surface: GraphSurfaceState,
     active_canvas_surface: CanvasSurfaceKind,
     chat_panel_expanded: bool,
     canvas_viewport: CanvasViewport,
@@ -259,12 +348,7 @@ impl StudioApp {
             )],
             canvas: CanvasState::default(),
             canvas_status: "Idle".to_owned(),
-            changed_node_ids: Vec::new(),
-            impact_node_ids: Vec::new(),
-            impact_overlay_enabled: false,
-            graph_legend_enabled: false,
-            graph_inspector_enabled: false,
-            graph_last_trigger: None,
+            graph_surface: GraphSurfaceState::default(),
             active_canvas_surface: CanvasSurfaceKind::ArchitectureGraph,
             chat_panel_expanded: true,
             canvas_viewport: CanvasViewport::default(),
@@ -443,7 +527,7 @@ impl StudioApp {
     }
 
     fn drain_graph_updates(&mut self) {
-        loop {
+        for _ in 0..MAX_GRAPH_UPDATES_PER_FRAME {
             match self.graph_update_rx.try_recv() {
                 Ok(update) => self.apply_graph_update(update),
                 Err(TryRecvError::Empty) => break,
@@ -463,71 +547,15 @@ impl StudioApp {
 
     fn apply_graph_update(&mut self, update: GraphRefreshUpdate) {
         let trigger = update.trigger.label().to_owned();
-        let delta = graph_change_delta(self.canvas.graph(), &update.graph);
-        self.changed_node_ids = delta.changed_node_ids;
-        self.impact_node_ids = delta.impact_node_ids;
-        self.canvas.apply(CanvasOp::SetGraph {
-            graph: update.graph,
-        });
-        self.graph_last_trigger = Some(trigger);
+        self.graph_surface
+            .apply_refresh(self.canvas.graph(), &update.graph, &trigger);
+        self.canvas.apply(CanvasOp::set_scene_graph(update.graph));
         self.apply_graph_visualization();
-        self.canvas_status = if self.changed_node_ids.is_empty() {
-            "Canvas refreshed".to_owned()
-        } else {
-            format!(
-                "Canvas refreshed ({} changed node{})",
-                self.changed_node_ids.len(),
-                if self.changed_node_ids.len() == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            )
-        };
+        self.canvas_status = self.graph_surface.refresh_status_label();
     }
 
     fn apply_graph_visualization(&mut self) {
-        self.canvas.apply(CanvasOp::HighlightNodes {
-            node_ids: build_highlight_node_ids(
-                &self.changed_node_ids,
-                &self.impact_node_ids,
-                self.impact_overlay_enabled,
-            ),
-        });
-
-        self.canvas.apply(CanvasOp::ClearAnnotations);
-        if self.changed_node_ids.is_empty() {
-            return;
-        }
-
-        self.canvas.apply(CanvasOp::AddAnnotation {
-            id: "changed-summary".to_owned(),
-            text: format!("Changed nodes: {}", self.changed_node_ids.len()),
-            node_id: None,
-        });
-
-        if !self.impact_overlay_enabled {
-            return;
-        }
-
-        self.canvas.apply(CanvasOp::AddAnnotation {
-            id: "impact-summary".to_owned(),
-            text: format!("1-hop impact nodes: {}", self.impact_node_ids.len()),
-            node_id: None,
-        });
-
-        for node_id in self
-            .impact_node_ids
-            .iter()
-            .take(MAX_IMPACT_NODE_ANNOTATIONS)
-            .cloned()
-        {
-            self.canvas.apply(CanvasOp::AddAnnotation {
-                id: format!("impact:{node_id}"),
-                text: "1-hop impact".to_owned(),
-                node_id: Some(node_id),
-            });
-        }
+        self.graph_surface.apply_visualization(&mut self.canvas);
     }
 
     fn apply_event(&mut self, event: StudioEvent) {
@@ -722,10 +750,10 @@ impl StudioApp {
         // Canvas surface dispatch point for future renderers (timeline, diffs, notes).
         let surface_adapter = Self::build_canvas_surface_adapter(
             self.active_canvas_surface,
-            &self.changed_node_ids,
-            &self.impact_node_ids,
-            self.impact_overlay_enabled,
-            self.graph_legend_enabled,
+            &self.graph_surface.changed_target_ids,
+            &self.graph_surface.impact_target_ids,
+            self.graph_surface.impact_overlay_enabled,
+            self.graph_surface.legend_enabled,
             &self.canvas_tool_cards,
         );
         surface_adapter.render(ui, &self.canvas, &mut self.canvas_viewport, surface_height);
@@ -823,12 +851,18 @@ impl StudioApp {
         }
 
         let mut overlay_changed = false;
-        ui.collapsing("Graph options", |ui| {
+        ui.collapsing("Surface options", |ui| {
             overlay_changed = ui
-                .checkbox(&mut self.impact_overlay_enabled, "Show impact overlay")
+                .checkbox(
+                    &mut self.graph_surface.impact_overlay_enabled,
+                    "Show impact overlay",
+                )
                 .changed();
-            ui.checkbox(&mut self.graph_legend_enabled, "Show graph legend");
-            ui.checkbox(&mut self.graph_inspector_enabled, "Show graph inspector");
+            ui.checkbox(&mut self.graph_surface.legend_enabled, "Show graph legend");
+            ui.checkbox(
+                &mut self.graph_surface.inspector_enabled,
+                "Show graph inspector",
+            );
             ui.label(
                 egui::RichText::new(self.active_canvas_surface.label())
                     .small()
@@ -839,7 +873,7 @@ impl StudioApp {
             self.apply_graph_visualization();
         }
 
-        if self.graph_inspector_enabled {
+        if self.graph_surface.inspector_enabled {
             Self::card_frame(ui).show(ui, |ui| {
                 ui.label(
                     egui::RichText::new("Graph inspector")
@@ -866,23 +900,20 @@ impl StudioApp {
                     );
                     Self::chip(
                         ui,
-                        format!("changed {}", self.changed_node_ids.len()),
+                        format!("changed {}", self.graph_surface.changed_target_ids.len()),
                         egui::Color32::from_rgb(255, 237, 218),
                         egui::Color32::from_rgb(223, 167, 108),
                         egui::Color32::from_rgb(153, 100, 34),
                     );
                     Self::chip(
                         ui,
-                        format!("impact {}", self.impact_node_ids.len()),
+                        format!("impact {}", self.graph_surface.impact_target_ids.len()),
                         egui::Color32::from_rgb(224, 240, 251),
                         egui::Color32::from_rgb(146, 184, 214),
                         egui::Color32::from_rgb(43, 97, 140),
                     );
                 });
-                let trigger = self
-                    .graph_last_trigger
-                    .as_deref()
-                    .unwrap_or("not yet refreshed");
+                let trigger = self.graph_surface.last_trigger_label();
                 ui.label(
                     egui::RichText::new(format!("Last refresh trigger: {trigger}"))
                         .small()
@@ -1099,14 +1130,27 @@ fn summarize_for_canvas(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+    use std::path::PathBuf;
     use std::time::UNIX_EPOCH;
 
+    use tokio::runtime::Handle;
+    use tokio::sync::mpsc::unbounded_channel;
+    use tokio::time::{Duration, timeout};
+
+    use crate::config::{AgentSettings, ModelProvider};
+    use crate::graph::watch::{GraphRefreshTrigger, GraphRefreshUpdate, spawn_graph_watch_worker};
     use crate::graph::{
         ArchitectureEdge, ArchitectureEdgeKind, ArchitectureGraph, ArchitectureNode,
         ArchitectureNodeKind,
     };
+    use crate::test_support::{remove_dir_if_exists, temp_path};
 
-    use super::{build_highlight_node_ids, graph_change_delta, summarize_for_canvas};
+    use super::{
+        CanvasOp, CanvasState, GraphSurfaceState, MAX_GRAPH_UPDATES_PER_FRAME, StudioApp,
+        StudioCommand, StudioEvent, build_highlight_node_ids, graph_change_delta,
+        spawn_runtime_worker, summarize_for_canvas,
+    };
 
     #[test]
     fn summarize_for_canvas_truncates_long_text() {
@@ -1170,6 +1214,222 @@ mod tests {
         );
     }
 
+    #[test]
+    fn graph_surface_state_refresh_and_visualization_stay_isolated_from_shell() {
+        let previous = graph_for_test(
+            1,
+            &["module:crate", "module:crate::tools"],
+            &[("module:crate", "module:crate::tools")],
+        );
+        let current = graph_for_test(
+            2,
+            &[
+                "module:crate",
+                "module:crate::tools",
+                "module:crate::tools::parser",
+            ],
+            &[
+                ("module:crate", "module:crate::tools"),
+                ("module:crate::tools", "module:crate::tools::parser"),
+            ],
+        );
+        let mut surface = GraphSurfaceState {
+            impact_overlay_enabled: true,
+            ..GraphSurfaceState::default()
+        };
+
+        surface.apply_refresh(Some(&previous), &current, "turn_completed");
+        assert_eq!(
+            surface.changed_target_ids,
+            vec![
+                "module:crate::tools".to_owned(),
+                "module:crate::tools::parser".to_owned()
+            ]
+        );
+        assert_eq!(surface.impact_target_ids, vec!["module:crate".to_owned()]);
+        assert_eq!(
+            surface.last_refresh_trigger.as_deref(),
+            Some("turn_completed")
+        );
+
+        let mut canvas = CanvasState::default();
+        canvas.apply(CanvasOp::set_scene_graph(current));
+        surface.apply_visualization(&mut canvas);
+        assert_eq!(
+            canvas.highlighted_target_ids(),
+            [
+                "module:crate",
+                "module:crate::tools",
+                "module:crate::tools::parser"
+            ]
+        );
+        assert_eq!(canvas.annotations().len(), 3);
+        assert_eq!(
+            surface.refresh_status_label(),
+            "Canvas refreshed (2 changed nodes)"
+        );
+        assert_eq!(surface.last_trigger_label(), "turn_completed");
+    }
+
+    #[test]
+    fn graph_surface_state_visualization_excludes_impact_without_overlay_toggle() {
+        let previous = graph_for_test(
+            1,
+            &["module:crate", "module:crate::tools"],
+            &[("module:crate", "module:crate::tools")],
+        );
+        let current = graph_for_test(
+            2,
+            &[
+                "module:crate",
+                "module:crate::tools",
+                "module:crate::tools::parser",
+            ],
+            &[
+                ("module:crate", "module:crate::tools"),
+                ("module:crate::tools", "module:crate::tools::parser"),
+            ],
+        );
+        let mut surface = GraphSurfaceState::default();
+        surface.apply_refresh(Some(&previous), &current, "files_changed");
+
+        let mut canvas = CanvasState::default();
+        canvas.apply(CanvasOp::set_scene_graph(current));
+        surface.apply_visualization(&mut canvas);
+
+        assert_eq!(
+            canvas.highlighted_target_ids(),
+            ["module:crate::tools", "module:crate::tools::parser"]
+        );
+        assert_eq!(canvas.annotations().len(), 1);
+        assert_eq!(canvas.annotations()[0].id, "changed-summary");
+    }
+
+    #[test]
+    fn graph_surface_state_last_trigger_label_defaults_before_first_refresh() {
+        let mut surface = GraphSurfaceState::default();
+        assert_eq!(surface.last_trigger_label(), "not yet refreshed");
+
+        surface.last_refresh_trigger = Some("turn_completed".to_owned());
+        assert_eq!(surface.last_trigger_label(), "turn_completed");
+    }
+
+    #[tokio::test]
+    async fn runtime_worker_emits_failed_turn_and_turn_completion_graph_refresh() {
+        let workspace_root = create_workspace_root("studio-runtime-flow");
+        let settings = studio_test_settings(1);
+        let (command_tx, command_rx) = unbounded_channel();
+        let (event_tx, mut event_rx) = unbounded_channel();
+        let runtime_handle = Handle::current();
+        let (graph_watch_handle, mut graph_update_rx) =
+            spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
+
+        spawn_runtime_worker(
+            &runtime_handle,
+            settings,
+            command_rx,
+            event_tx,
+            graph_watch_handle.clone(),
+        );
+
+        command_tx
+            .send(StudioCommand::SubmitUserMessage {
+                message: "hello".to_owned(),
+            })
+            .expect("command send should succeed");
+
+        let started = timeout(Duration::from_secs(2), event_rx.recv())
+            .await
+            .expect("turn started should arrive within timeout")
+            .expect("event channel should remain open");
+        match started {
+            StudioEvent::TurnStarted { message, .. } => assert_eq!(message, "hello"),
+            other => panic!("expected TurnStarted event, got {other:?}"),
+        }
+
+        let failed = timeout(Duration::from_secs(2), event_rx.recv())
+            .await
+            .expect("turn failed should arrive within timeout")
+            .expect("event channel should remain open");
+        match failed {
+            StudioEvent::TurnFailed { message, error } => {
+                assert_eq!(message, "hello");
+                assert!(error.contains("AGENT_MAX_INPUT_CHARS"));
+            }
+            other => panic!("expected TurnFailed event, got {other:?}"),
+        }
+
+        let turn_refresh = timeout(Duration::from_secs(3), async {
+            loop {
+                let update = graph_update_rx
+                    .recv()
+                    .await
+                    .expect("graph update channel should remain open");
+                if matches!(
+                    update.trigger,
+                    GraphRefreshTrigger::TurnCompleted
+                        | GraphRefreshTrigger::TurnCompletedAndFilesChanged
+                ) {
+                    break update;
+                }
+            }
+        })
+        .await
+        .expect("turn-completion graph refresh should arrive within timeout");
+        assert!(matches!(
+            turn_refresh.trigger,
+            GraphRefreshTrigger::TurnCompleted | GraphRefreshTrigger::TurnCompletedAndFilesChanged
+        ));
+
+        graph_watch_handle.shutdown();
+        remove_dir_if_exists(&workspace_root);
+    }
+
+    #[tokio::test]
+    async fn drain_graph_updates_processes_bounded_batch_per_frame() {
+        let workspace_root = create_workspace_root("studio-bounded-drain");
+        let settings = studio_test_settings(8);
+        let (command_tx, _command_rx) = unbounded_channel();
+        let (_event_tx, event_rx) = unbounded_channel();
+        let (graph_update_tx, graph_update_rx) = unbounded_channel();
+        let runtime_handle = Handle::current();
+        let (graph_watch_handle, _graph_watch_rx) =
+            spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
+        let mut app = StudioApp::new(
+            settings,
+            command_tx,
+            event_rx,
+            graph_update_rx,
+            graph_watch_handle.clone(),
+            workspace_root.clone(),
+        );
+
+        let total_updates = MAX_GRAPH_UPDATES_PER_FRAME + 2;
+        for revision in 1..=(total_updates as u64) {
+            graph_update_tx
+                .send(GraphRefreshUpdate {
+                    graph: graph_for_test(revision, &["module:crate"], &[]),
+                    trigger: GraphRefreshTrigger::TurnCompleted,
+                })
+                .expect("graph update send should succeed");
+        }
+
+        app.drain_graph_updates();
+        assert_eq!(
+            app.canvas.graph().map(|graph| graph.revision),
+            Some(MAX_GRAPH_UPDATES_PER_FRAME as u64)
+        );
+
+        app.drain_graph_updates();
+        assert_eq!(
+            app.canvas.graph().map(|graph| graph.revision),
+            Some(total_updates as u64)
+        );
+
+        graph_watch_handle.shutdown();
+        remove_dir_if_exists(&workspace_root);
+    }
+
     fn graph_for_test(
         revision: u64,
         node_ids: &[&str],
@@ -1197,5 +1457,36 @@ mod tests {
             kind: ArchitectureNodeKind::Module,
             path: None,
         }
+    }
+
+    fn studio_test_settings(max_input_chars: u32) -> AgentSettings {
+        AgentSettings {
+            model_provider: ModelProvider::Ollama,
+            model: "qwen2.5:3b".to_owned(),
+            ollama_base_url: "http://127.0.0.1:9".to_owned(),
+            openai_api_key: None,
+            max_steps: 4,
+            max_tool_calls: 4,
+            max_tool_calls_per_step: 2,
+            max_consecutive_tool_steps: 2,
+            max_input_chars,
+            max_output_chars: 2000,
+            tool_timeout_ms: 100,
+            fetch_url_max_bytes: 4096,
+            fetch_url_follow_redirects: false,
+            fetch_url_allowed_domains: vec!["example.com".to_owned()],
+            notes_dir: "notes".to_owned(),
+            save_note_allow_overwrite: false,
+            model_timeout_ms: 100,
+            model_max_retries: 0,
+        }
+    }
+
+    fn create_workspace_root(prefix: &str) -> PathBuf {
+        let root = temp_path(prefix);
+        fs::create_dir_all(root.join("src")).expect("workspace src directory should be creatable");
+        fs::write(root.join("src/lib.rs"), "pub fn seed() {}\n")
+            .expect("workspace seed file should be writable");
+        root
     }
 }
