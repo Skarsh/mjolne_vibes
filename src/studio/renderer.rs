@@ -56,17 +56,21 @@ impl ArchitectureOverviewRenderer {
         let mut file_shape_ids = Vec::new();
         let mut fit_ids = Vec::new();
 
+        let module_columns = 4_usize;
+        let module_row_height = 140_i32;
         for (index, node) in module_nodes.iter().enumerate() {
             let x = 80 + ((index % 4) as i32 * 250);
-            let y = 100 + ((index / 4) as i32 * 140);
+            let y = 100 + ((index / module_columns) as i32 * module_row_height);
             let shape = build_node_shape(node, x, y, &changed, &impact);
             fit_ids.push(shape.id.clone());
             module_shape_ids.push(shape.id.clone());
             commands.push(CanvasDrawCommand::UpsertShape { shape });
         }
+        let module_rows = module_nodes.len().max(1).div_ceil(module_columns) as i32;
+        let file_start_y = 100 + (module_rows * module_row_height) + 180;
         for (index, node) in file_nodes.iter().enumerate() {
             let x = 80 + ((index % 4) as i32 * 250);
-            let y = 420 + ((index / 4) as i32 * 125);
+            let y = file_start_y + ((index / 4) as i32 * 125);
             let shape = build_node_shape(node, x, y, &changed, &impact);
             fit_ids.push(shape.id.clone());
             file_shape_ids.push(shape.id.clone());
@@ -271,6 +275,85 @@ mod tests {
             })
             .expect("changed node shape should be present");
         assert_eq!(changed_shape.style.fill_color.as_deref(), Some("#d17a34"));
+    }
+
+    #[test]
+    fn architecture_renderer_places_files_below_module_block() {
+        let graph = ArchitectureGraph {
+            nodes: vec![
+                ArchitectureNode {
+                    id: "module:a".to_owned(),
+                    display_label: "a".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+                ArchitectureNode {
+                    id: "module:b".to_owned(),
+                    display_label: "b".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+                ArchitectureNode {
+                    id: "module:c".to_owned(),
+                    display_label: "c".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+                ArchitectureNode {
+                    id: "module:d".to_owned(),
+                    display_label: "d".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+                ArchitectureNode {
+                    id: "module:e".to_owned(),
+                    display_label: "e".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+                ArchitectureNode {
+                    id: "file:f1".to_owned(),
+                    display_label: "f1".to_owned(),
+                    kind: ArchitectureNodeKind::File,
+                    path: Some("src/f1.rs".to_owned()),
+                },
+            ],
+            edges: Vec::new(),
+            revision: 1,
+            generated_at: UNIX_EPOCH,
+        };
+
+        let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
+            graph: &graph,
+            changed_target_ids: &[],
+            impact_target_ids: &[],
+            show_impact_overlay: false,
+            tool_cards: &[],
+            sequence: 1,
+        });
+
+        let mut module_max_y = i32::MIN;
+        let mut file_min_y = i32::MAX;
+        for command in &batch.commands {
+            let super::CanvasDrawCommand::UpsertShape { shape } = command else {
+                continue;
+            };
+            let y = shape
+                .points
+                .first()
+                .map(|point| point.y)
+                .unwrap_or_default();
+            if shape.id.starts_with("node:module:") {
+                module_max_y = module_max_y.max(y);
+            }
+            if shape.id.starts_with("node:file:") {
+                file_min_y = file_min_y.min(y);
+            }
+        }
+
+        assert!(module_max_y > i32::MIN);
+        assert!(file_min_y < i32::MAX);
+        assert!(file_min_y > module_max_y);
     }
 
     fn graph_fixture() -> ArchitectureGraph {
