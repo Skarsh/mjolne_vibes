@@ -57,6 +57,14 @@ Canvas operation contract:
     - `FocusNode`
     - `AddAnnotation`
 
+Studio purpose contract (product intent):
+- Primary objective is architectural change comprehension across turns:
+  - What changed?
+  - What did it impact?
+  - Did the outcome match the agent's intended targets?
+- The canvas should let users answer those faster than reading raw diffs.
+- Static topology readability matters, but serves the change-analysis goal.
+
 Canvas surface adapter contract:
 - `CanvasSurfaceAdapterKind::ArchitectureGraph`
 - `CanvasSurfaceAdapter::ArchitectureGraph { GraphSurfaceAdapterOptions }`
@@ -90,8 +98,24 @@ Renderer pipeline direction:
   - graph snapshots
   - graph deltas
   into generic draw commands.
-  - current output focuses on lane labels plus module/file node + connector scene content.
+  - current output focuses on system-structured topology (subsystem-oriented grouping) plus readable connector structure.
+- Next renderer evolution focuses on turn-aware change layers over that topology:
+  - before/after overlays
+  - per-turn changed-only focus
+  - impact propagation visualization
+  - intent-vs-outcome overlays
 - Future renderers (timeline, task map, note clusters) should plug into the same pipeline.
+
+Change-intelligence data model direction:
+- `GraphSurfaceState` remains responsible for graph refresh deltas and impact seed sets.
+- Add typed turn snapshot records (planned):
+  - turn id / timestamp
+  - baseline graph revision
+  - post-turn graph revision
+  - changed targets
+  - impact targets
+  - optional intent targets (from tool/agent context)
+- Renderer input should consume these snapshots as read-only data and compile deterministic draw commands.
 
 Runtime flow (implemented + planned):
 1. User sends chat input from `studio`.
@@ -106,6 +130,7 @@ Runtime flow (implemented + planned):
 7. On each post-startup graph refresh, `studio` (via `GraphSurfaceState`) diffs old/new graph snapshots to:
    - highlight changed nodes
    - compute 1-hop impact nodes for renderer-side use
+   - provide stable seeds for future multi-hop impact and turn snapshots
 8. `studio/canvas.rs` provides generic canvas surface behavior (shared frame sizing, content insets, viewport drag/zoom input), and renderer adapters layer draw-command output on top with:
   - pan + scroll-wheel zoom viewport controls
   - fit/reset controls surfaced in the canvas toolbar (generic default controls)
@@ -113,6 +138,12 @@ Runtime flow (implemented + planned):
   - clip-rect constrained scene rendering so objects do not bleed outside the visible stage
 9. `studio/mod.rs` now regenerates renderer output (`ArchitectureOverviewRenderer`) on graph refreshes and tool/turn updates; resulting `CanvasDrawCommandBatch` is applied through `CanvasOp::ApplyDrawCommandBatch`.
 10. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceAdapter`/`CanvasSurfaceAdapterKind` so additional renderer modules can be added without changing runtime/tool contracts.
+
+Planned UX milestones for this architecture:
+1. Before/after overlay mode with deterministic color semantics.
+2. Per-turn focus mode (highlight changed + immediate impact, dim unchanged).
+3. Timeline/snapshot scrubbing over turn-indexed graph states.
+4. Intent vs outcome mode (planned target set vs changed target set).
 
 Planned failure handling:
 - Canvas or graph refresh failures must not fail chat turns.

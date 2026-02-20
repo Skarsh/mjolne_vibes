@@ -30,6 +30,7 @@ Goals:
 - Establish a complete generic canvas command model (scene + draw ops) decoupled from graph-specific state.
 - Support higher-level renderers that compile domain state into generic draw commands.
 - Deliver architecture/workflow renderer first so users can understand agent changes and implementation flow faster than raw diffs.
+- Prioritize change-intelligence UX: make turn-by-turn architectural impact understandable at a glance (before/after + impact + intent vs outcome), not only static topology.
 - Auto-refresh renderer outputs on file changes and at chat-turn completion.
 - Allow the agent runtime to emit typed canvas update intents alongside text.
 
@@ -43,10 +44,14 @@ Execution plan:
 3. Add renderer pipeline:
    - Add architecture overview renderer that translates graph + change events into draw commands.
    - Preserve graph refresh isolation and bounded per-frame update draining.
-4. Surface agent-work context:
-   - Project turn/tool activity into canvas annotations/cards/lanes as draw commands.
+4. Add change-intelligence layers:
+   - Add stable before/after graph overlays with typed change semantics (added/removed/moved/changed).
+   - Add per-turn change-focused mode that dims unchanged topology.
+   - Add impact propagation modes (1-hop now, deeper modes later) with deterministic rendering.
+5. Correlate intent with outcome:
+   - Project planned targets/tool context and actual changed targets into comparable renderer layers.
    - Keep this as renderer output, not special-cased canvas-core logic.
-5. Hardening:
+6. Hardening:
    - Add reducer invariants, renderer translation tests, and studio integration tests for event flow.
    - Keep CLI/eval/HTTP behavior stable and safety policies unchanged.
 
@@ -59,7 +64,7 @@ Constraints:
 - Keep existing `chat`, `chat --json`, `repl`, `eval`, and `serve` behavior stable.
 
 Deferred beyond v0:
-- Per-turn timeline/snapshot scrubber.
+- Per-turn timeline/snapshot scrubber UI (data model may land earlier).
 - Voice input/output.
 - Fine-grained (function-level) architecture graphing.
 
