@@ -35,39 +35,39 @@ const MAX_IMPACT_NODE_ANNOTATIONS: usize = 12;
 const MAX_GRAPH_UPDATES_PER_FRAME: usize = 4;
 
 fn studio_text() -> egui::Color32 {
-    egui::Color32::from_rgb(24, 36, 51)
+    egui::Color32::from_rgb(23, 33, 44)
 }
 
 fn studio_muted_text() -> egui::Color32 {
-    egui::Color32::from_rgb(94, 109, 126)
+    egui::Color32::from_rgb(90, 105, 123)
 }
 
 fn studio_surface() -> egui::Color32 {
-    egui::Color32::from_rgb(241, 247, 253)
+    egui::Color32::from_rgb(238, 245, 252)
 }
 
 fn studio_surface_alt() -> egui::Color32 {
-    egui::Color32::from_rgb(250, 253, 255)
+    egui::Color32::from_rgb(247, 252, 255)
 }
 
 fn studio_panel_tint() -> egui::Color32 {
-    egui::Color32::from_rgb(231, 241, 250)
+    egui::Color32::from_rgb(226, 238, 250)
 }
 
 fn studio_border() -> egui::Color32 {
-    egui::Color32::from_rgb(183, 201, 223)
+    egui::Color32::from_rgb(174, 196, 221)
 }
 
 fn studio_border_strong() -> egui::Color32 {
-    egui::Color32::from_rgb(151, 175, 203)
+    egui::Color32::from_rgb(130, 161, 196)
 }
 
 fn studio_accent() -> egui::Color32 {
-    egui::Color32::from_rgb(22, 103, 186)
+    egui::Color32::from_rgb(12, 119, 173)
 }
 
 fn studio_accent_soft() -> egui::Color32 {
-    egui::Color32::from_rgb(217, 233, 247)
+    egui::Color32::from_rgb(211, 232, 248)
 }
 
 pub fn run_studio(settings: &AgentSettings) -> Result<()> {
@@ -512,6 +512,11 @@ impl StudioApp {
     fn render_top_bar(&mut self, ui: &mut egui::Ui) {
         let (status_label, status_fill, status_stroke, status_text_color) = self.session_status();
         ui.horizontal(|ui| {
+            let accent_rect =
+                egui::Rect::from_min_size(ui.next_widget_position(), egui::vec2(3.0, 22.0));
+            ui.painter()
+                .rect_filled(accent_rect, 2.0, studio_accent().gamma_multiply(0.9));
+            ui.add_space(8.0);
             let toggle_button = egui::Button::new(
                 egui::RichText::new(if self.chat_panel_expanded {
                     "Hide chat"
@@ -900,19 +905,12 @@ impl StudioApp {
                     .strong()
                     .color(studio_text()),
             );
-            Self::chip(
-                ui,
-                self.active_canvas_surface.label(),
-                studio_accent_soft(),
-                studio_border(),
-                studio_muted_text(),
-            );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 egui::Frame::new()
-                    .fill(studio_accent_soft())
-                    .stroke(egui::Stroke::new(1.0, studio_border()))
-                    .corner_radius(10)
-                    .inner_margin(egui::Margin::symmetric(6, 4))
+                    .fill(egui::Color32::from_rgb(222, 238, 251))
+                    .stroke(egui::Stroke::new(1.0, studio_border_strong()))
+                    .corner_radius(11)
+                    .inner_margin(egui::Margin::symmetric(7, 4))
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             if ui.button("Fit").clicked() {

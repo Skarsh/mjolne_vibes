@@ -67,24 +67,7 @@ impl ArchitectureOverviewRenderer {
         let mut module_shape_ids = Vec::new();
         let mut file_shape_ids = Vec::new();
         let mut fit_ids = Vec::new();
-
-        commands.push(CanvasDrawCommand::UpsertShape {
-            shape: CanvasShapeObject {
-                id: "lane:modules-label".to_owned(),
-                layer: 5,
-                kind: CanvasShapeKind::Text,
-                points: vec![CanvasPoint { x: 80, y: 72 }],
-                text: Some("Modules lane".to_owned()),
-                style: CanvasStyle {
-                    fill_color: None,
-                    stroke_color: None,
-                    stroke_width_px: None,
-                    text_color: Some("#355a7e".to_owned()),
-                },
-            },
-        });
-
-        let module_layout = layout_rows(&module_nodes, &node_labels, 100, 4, 80, 250, 28);
+        let module_layout = layout_rows(&module_nodes, &node_labels, 104, 4, 92, 258, 30);
         for (node, x, y) in &module_layout {
             let shape = build_node_shape(
                 node,
@@ -105,8 +88,9 @@ impl ArchitectureOverviewRenderer {
             .iter()
             .map(|(node, _, y)| y + node_shape_height(label_for(node, &node_labels)))
             .max()
-            .unwrap_or(180);
-        let file_start_y = module_end_y + 96;
+            .unwrap_or(188);
+        let file_start_y = module_end_y + 112;
+        let file_layout = layout_rows(&file_nodes, &node_labels, file_start_y, 4, 92, 258, 24);
         commands.push(CanvasDrawCommand::UpsertShape {
             shape: CanvasShapeObject {
                 id: "lane:files-label".to_owned(),
@@ -116,16 +100,30 @@ impl ArchitectureOverviewRenderer {
                     x: 80,
                     y: file_start_y - 28,
                 }],
-                text: Some("Files lane".to_owned()),
+                text: Some("Files".to_owned()),
                 style: CanvasStyle {
                     fill_color: None,
                     stroke_color: None,
                     stroke_width_px: None,
-                    text_color: Some("#3b6b4d".to_owned()),
+                    text_color: Some("#315f81".to_owned()),
                 },
             },
         });
-        let file_layout = layout_rows(&file_nodes, &node_labels, file_start_y, 4, 80, 250, 24);
+        commands.push(CanvasDrawCommand::UpsertShape {
+            shape: CanvasShapeObject {
+                id: "lane:modules-label".to_owned(),
+                layer: 6,
+                kind: CanvasShapeKind::Text,
+                points: vec![CanvasPoint { x: 88, y: 62 }],
+                text: Some("Modules".to_owned()),
+                style: CanvasStyle {
+                    fill_color: None,
+                    stroke_color: None,
+                    stroke_width_px: None,
+                    text_color: Some("#295a86".to_owned()),
+                },
+            },
+        });
         for (node, x, y) in &file_layout {
             let shape = build_node_shape(
                 node,
@@ -167,21 +165,21 @@ impl ArchitectureOverviewRenderer {
                 if changed.contains(edge.from.as_str()) || changed.contains(edge.to.as_str()) {
                     CanvasStyle {
                         fill_color: None,
-                        stroke_color: Some("#cc762f".to_owned()),
+                        stroke_color: Some("#cf6c2a".to_owned()),
                         stroke_width_px: Some(2),
                         text_color: None,
                     }
                 } else if impact.contains(edge.from.as_str()) || impact.contains(edge.to.as_str()) {
                     CanvasStyle {
                         fill_color: None,
-                        stroke_color: Some("#4c8daf".to_owned()),
+                        stroke_color: Some("#3f89b2".to_owned()),
                         stroke_width_px: Some(2),
                         text_color: None,
                     }
                 } else {
                     CanvasStyle {
                         fill_color: None,
-                        stroke_color: Some("#8ea0b8".to_owned()),
+                        stroke_color: Some("#89a4bf".to_owned()),
                         stroke_width_px: Some(1),
                         text_color: None,
                     }
@@ -229,13 +227,13 @@ fn build_node_shape(
     impact: &BTreeSet<&str>,
 ) -> CanvasShapeObject {
     let (fill_color, stroke_color) = if changed.contains(node.id.as_str()) {
-        ("#d17a34", "#7f451e")
+        ("#dc7e35", "#88451b")
     } else if impact.contains(node.id.as_str()) {
-        ("#5295b7", "#2c607f")
+        ("#4f98bf", "#2d6687")
     } else {
         match node.kind {
-            ArchitectureNodeKind::Module => ("#4d7d9e", "#2b4964"),
-            ArchitectureNodeKind::File => ("#548f6a", "#2c5b3f"),
+            ArchitectureNodeKind::Module => ("#3e7faa", "#22577a"),
+            ArchitectureNodeKind::File => ("#4e9164", "#2f6543"),
         }
     };
 
@@ -274,7 +272,7 @@ fn label_for<'a>(node: &'a ArchitectureNode, labels: &'a HashMap<&str, String>) 
 }
 
 fn node_shape_width() -> i32 {
-    210
+    222
 }
 
 fn node_shape_height(label: &str) -> i32 {
@@ -488,7 +486,7 @@ mod tests {
                 _ => None,
             })
             .expect("changed node shape should be present");
-        assert_eq!(changed_shape.style.fill_color.as_deref(), Some("#d17a34"));
+        assert_eq!(changed_shape.style.fill_color.as_deref(), Some("#dc7e35"));
     }
 
     #[test]

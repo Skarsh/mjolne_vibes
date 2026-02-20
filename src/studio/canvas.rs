@@ -488,12 +488,18 @@ fn render_canvas_surface_frame(
     let desired_size = canvas_desired_size(ui.available_width(), surface_height);
     let (response, painter) = ui.allocate_painter(desired_size, egui::Sense::drag());
     let frame = response.rect.shrink(CANVAS_FRAME_INSET);
-    painter.rect_filled(frame, 12.0, egui::Color32::from_rgb(251, 253, 255));
+    painter.rect_filled(frame, 14.0, egui::Color32::from_rgb(250, 253, 255));
     painter.rect_stroke(
         frame,
-        12.0,
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(184, 203, 227)),
+        14.0,
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(168, 194, 223)),
         egui::StrokeKind::Outside,
+    );
+    let upper_band = egui::Rect::from_min_max(frame.min, egui::pos2(frame.max.x, frame.center().y));
+    painter.rect_filled(
+        upper_band,
+        14.0,
+        egui::Color32::from_rgba_unmultiplied(223, 238, 252, 44),
     );
     let content_rect = canvas_content_rect(frame);
     paint_canvas_guides(&painter, content_rect, viewport);
@@ -512,14 +518,14 @@ fn paint_canvas_guides(
     content_rect: egui::Rect,
     viewport: &CanvasViewport,
 ) {
-    let spacing = 72.0 * viewport.zoom_clamped(0.86, 1.3);
+    let spacing = 68.0 * viewport.zoom_clamped(0.86, 1.3);
     let mut x = content_rect.left() - viewport.pan.x.rem_euclid(spacing);
     let mut x_index = 0;
     while x <= content_rect.right() {
         let color = if x_index % 3 == 0 {
-            egui::Color32::from_rgba_unmultiplied(151, 176, 205, 54)
+            egui::Color32::from_rgba_unmultiplied(118, 162, 201, 56)
         } else {
-            egui::Color32::from_rgba_unmultiplied(166, 189, 214, 34)
+            egui::Color32::from_rgba_unmultiplied(151, 184, 215, 30)
         };
         painter.line_segment(
             [
@@ -536,9 +542,9 @@ fn paint_canvas_guides(
     let mut y_index = 0;
     while y <= content_rect.bottom() {
         let color = if y_index % 3 == 0 {
-            egui::Color32::from_rgba_unmultiplied(151, 176, 205, 54)
+            egui::Color32::from_rgba_unmultiplied(118, 162, 201, 56)
         } else {
-            egui::Color32::from_rgba_unmultiplied(166, 189, 214, 34)
+            egui::Color32::from_rgba_unmultiplied(151, 184, 215, 30)
         };
         painter.line_segment(
             [
@@ -796,6 +802,27 @@ fn render_draw_scene(
         .map(|shape| (shape.id.as_str(), draw_shape_center(shape)))
         .collect::<BTreeMap<_, _>>();
 
+    let mut background_shapes = Vec::new();
+    let mut foreground_shapes = Vec::new();
+    for shape in scene.shapes() {
+        if shape.id.starts_with("lane:") && shape.kind == CanvasShapeKind::Rectangle {
+            background_shapes.push(shape);
+        } else {
+            foreground_shapes.push(shape);
+        }
+    }
+
+    for shape in background_shapes {
+        draw_shape(
+            &scene_painter,
+            shape,
+            viewport,
+            canvas_center,
+            scene_origin,
+            ui.visuals().text_color(),
+        );
+    }
+
     for connector in scene.connectors() {
         let Some(from) = shape_centers.get(connector.from_id.as_str()).copied() else {
             continue;
@@ -816,7 +843,7 @@ fn render_draw_scene(
     }
 
     let mut rect_shapes = Vec::new();
-    for shape in scene.shapes() {
+    for shape in foreground_shapes {
         draw_shape(
             &scene_painter,
             shape,
@@ -902,14 +929,20 @@ fn draw_shape(
     match shape.kind {
         CanvasShapeKind::Rectangle => {
             if let Some(rect) = rectangle_shape_rect(shape, viewport, canvas_center, scene_origin) {
-                painter.rect_filled(rect, 8.0, fill_color);
-                painter.rect_stroke(rect, 8.0, stroke, egui::StrokeKind::Outside);
+                let shadow_rect = rect.translate(egui::vec2(0.0, 2.0));
+                painter.rect_filled(
+                    shadow_rect,
+                    10.0,
+                    egui::Color32::from_rgba_unmultiplied(28, 48, 71, 34),
+                );
+                painter.rect_filled(rect, 10.0, fill_color);
+                painter.rect_stroke(rect, 10.0, stroke, egui::StrokeKind::Outside);
                 if let Some(text) = &shape.text {
                     painter.text(
                         rect.center(),
                         egui::Align2::CENTER_CENTER,
                         text,
-                        egui::FontId::proportional(11.2),
+                        egui::FontId::proportional(11.6),
                         text_color,
                     );
                 }
@@ -951,7 +984,7 @@ fn draw_shape(
                 anchor,
                 egui::Align2::LEFT_TOP,
                 clipped_label(text, 80),
-                egui::FontId::proportional(10.8),
+                egui::FontId::proportional(11.0),
                 text_color,
             );
         }
