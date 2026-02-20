@@ -27,6 +27,7 @@ use self::canvas::{
 use self::events::{CanvasOp, StudioCommand, StudioEvent, StudioTurnResult};
 use self::renderer::{
     ArchitectureActivitySummary, ArchitectureOverviewRenderInput, ArchitectureOverviewRenderer,
+    SubsystemMapper,
 };
 
 const APP_TITLE: &str = "mjolne_vibes studio";
@@ -77,6 +78,7 @@ pub fn run_studio(settings: &AgentSettings) -> Result<()> {
     let runtime_handle = Handle::try_current().context("studio requires a tokio runtime")?;
     let workspace_root =
         std::env::current_dir().context("failed to resolve workspace root for studio")?;
+    let subsystem_mapper = load_subsystem_mapper(settings, &workspace_root)?;
 
     let (command_tx, command_rx) = unbounded_channel::<StudioCommand>();
     let (event_tx, event_rx) = unbounded_channel::<StudioEvent>();
@@ -104,6 +106,7 @@ pub fn run_studio(settings: &AgentSettings) -> Result<()> {
         Box::new(move |_cc| {
             Ok(Box::new(StudioApp::new(
                 app_settings,
+                subsystem_mapper,
                 command_tx,
                 event_rx,
                 graph_update_rx,
@@ -113,6 +116,34 @@ pub fn run_studio(settings: &AgentSettings) -> Result<()> {
         }),
     )
     .map_err(|error| anyhow::anyhow!("studio UI exited with error: {error}"))
+}
+
+fn load_subsystem_mapper(
+    settings: &AgentSettings,
+    workspace_root: &std::path::Path,
+) -> Result<SubsystemMapper> {
+    let Some(path) = settings.studio_subsystem_rules_file.as_deref() else {
+        return Ok(SubsystemMapper::default());
+    };
+
+    let configured_path = PathBuf::from(path);
+    let resolved_path = if configured_path.is_absolute() {
+        configured_path
+    } else {
+        workspace_root.join(configured_path)
+    };
+    let mapper = SubsystemMapper::from_rules_file(&resolved_path).with_context(|| {
+        format!(
+            "failed to load STUDIO_SUBSYSTEM_RULES_FILE from {}",
+            resolved_path.display()
+        )
+    })?;
+    info!(
+        rules_file = %resolved_path.display(),
+        rule_count = mapper.rule_count(),
+        "loaded studio subsystem mapping rules"
+    );
+    Ok(mapper)
 }
 
 fn spawn_runtime_worker(
@@ -354,6 +385,7 @@ impl GraphSurfaceState {
 struct StudioApp {
     settings: AgentSettings,
     workspace_root: PathBuf,
+    subsystem_mapper: SubsystemMapper,
     command_tx: UnboundedSender<StudioCommand>,
     event_rx: UnboundedReceiver<StudioEvent>,
     graph_update_rx: UnboundedReceiver<GraphRefreshUpdate>,
@@ -384,6 +416,7 @@ struct StudioApp {
 impl StudioApp {
     fn new(
         settings: AgentSettings,
+        subsystem_mapper: SubsystemMapper,
         command_tx: UnboundedSender<StudioCommand>,
         event_rx: UnboundedReceiver<StudioEvent>,
         graph_update_rx: UnboundedReceiver<GraphRefreshUpdate>,
@@ -393,6 +426,7 @@ impl StudioApp {
         Self {
             settings,
             workspace_root,
+            subsystem_mapper,
             command_tx,
             event_rx,
             graph_update_rx,
@@ -699,6 +733,7 @@ impl StudioApp {
         self.next_draw_command_sequence = self.next_draw_command_sequence.saturating_add(1);
         let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &graph,
+            subsystem_mapper: &self.subsystem_mapper,
             changed_target_ids: effective_changed,
             impact_target_ids: effective_impact,
             show_impact_overlay: self.graph_surface.impact_overlay_enabled,
@@ -1412,7 +1447,8 @@ mod tests {
     use super::{
         CanvasDiffMode, CanvasOp, CanvasState, CanvasTurnSnapshot, GraphSurfaceState,
         MAX_GRAPH_UPDATES_PER_FRAME, PendingTurnSnapshot, StudioApp, StudioCommand, StudioEvent,
-        build_highlight_node_ids, graph_change_delta, spawn_runtime_worker, summarize_for_canvas,
+        SubsystemMapper, build_highlight_node_ids, graph_change_delta, spawn_runtime_worker,
+        summarize_for_canvas,
     };
 
     #[test]
@@ -1588,6 +1624,7 @@ mod tests {
             spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
         let mut app = StudioApp::new(
             studio_test_settings(8),
+            SubsystemMapper::default(),
             command_tx,
             event_rx,
             graph_update_rx,
@@ -1650,6 +1687,7 @@ mod tests {
             spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
         let mut app = StudioApp::new(
             settings,
+            SubsystemMapper::default(),
             command_tx,
             event_rx,
             graph_update_rx,
@@ -1697,6 +1735,7 @@ mod tests {
             spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
         let mut app = StudioApp::new(
             settings,
+            SubsystemMapper::default(),
             command_tx,
             event_rx,
             graph_update_rx,
@@ -1749,6 +1788,7 @@ mod tests {
             spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
         let mut app = StudioApp::new(
             settings,
+            SubsystemMapper::default(),
             command_tx,
             event_rx,
             graph_update_rx,
@@ -1873,6 +1913,7 @@ mod tests {
             spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
         let mut app = StudioApp::new(
             settings,
+            SubsystemMapper::default(),
             command_tx,
             event_rx,
             graph_update_rx,
@@ -1963,6 +2004,7 @@ mod tests {
             save_note_allow_overwrite: false,
             model_timeout_ms: 100,
             model_max_retries: 0,
+            studio_subsystem_rules_file: None,
         }
     }
 

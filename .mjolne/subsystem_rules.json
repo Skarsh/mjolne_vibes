@@ -1,0 +1,36 @@
+{
+  "rules": [
+    {
+      "subsystem": "runtime-core",
+      "module_prefix": "crate::agent"
+    },
+    {
+      "subsystem": "runtime-core",
+      "module_prefix": "crate::tools"
+    },
+    {
+      "subsystem": "runtime-core",
+      "module_prefix": "crate::model"
+    },
+    {
+      "subsystem": "runtime-core",
+      "module_prefix": "crate::config"
+    },
+    {
+      "subsystem": "transport",
+      "module_prefix": "crate::server"
+    },
+    {
+      "subsystem": "evaluation",
+      "module_prefix": "crate::eval"
+    },
+    {
+      "subsystem": "studio-ui",
+      "file_path_prefix": "src/studio/"
+    },
+    {
+      "subsystem": "graphing",
+      "file_path_prefix": "src/graph/"
+    }
+  ]
+}

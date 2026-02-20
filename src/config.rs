@@ -84,6 +84,7 @@ pub struct AgentSettings {
     pub save_note_allow_overwrite: bool,
     pub model_timeout_ms: u64,
     pub model_max_retries: u32,
+    pub studio_subsystem_rules_file: Option<String>,
 }
 
 impl AgentSettings {
@@ -158,6 +159,7 @@ impl AgentSettings {
             parse_positive_u64_env("MODEL_TIMEOUT_MS", DEFAULT_MODEL_TIMEOUT_MS)?;
 
         let model_max_retries = parse_u32_env("MODEL_MAX_RETRIES", DEFAULT_MODEL_MAX_RETRIES)?;
+        let studio_subsystem_rules_file = read_optional_env("STUDIO_SUBSYSTEM_RULES_FILE");
 
         Ok(Self {
             model_provider,
@@ -178,6 +180,7 @@ impl AgentSettings {
             save_note_allow_overwrite,
             model_timeout_ms,
             model_max_retries,
+            studio_subsystem_rules_file,
         })
     }
 }

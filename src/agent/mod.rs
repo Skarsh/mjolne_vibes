@@ -1126,6 +1126,7 @@ mod tests {
             save_note_allow_overwrite: false,
             model_timeout_ms: 20_000,
             model_max_retries: 0,
+            studio_subsystem_rules_file: None,
         }
     }
 }

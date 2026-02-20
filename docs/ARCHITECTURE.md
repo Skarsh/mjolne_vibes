@@ -99,6 +99,7 @@ Renderer pipeline direction:
   - graph deltas
   into generic draw commands.
   - current output focuses on system-structured topology (subsystem-oriented grouping) plus readable connector structure.
+  - subsystem grouping can be overridden via ordered studio mapping rules loaded from `STUDIO_SUBSYSTEM_RULES_FILE`; unmatched nodes keep heuristic grouping.
 - Next renderer evolution focuses on turn-aware change layers over that topology:
   - before/after overlays
   - per-turn changed-only focus

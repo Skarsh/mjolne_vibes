@@ -1,6 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::fs;
+use std::path::Path;
 
 use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
+use anyhow::{Context, Result, ensure};
+use serde::Deserialize;
 
 use super::canvas::CanvasToolCard;
 use super::events::{
@@ -10,6 +14,7 @@ use super::events::{
 
 pub struct ArchitectureOverviewRenderInput<'a> {
     pub graph: &'a ArchitectureGraph,
+    pub subsystem_mapper: &'a SubsystemMapper,
     pub changed_target_ids: &'a [String],
     pub impact_target_ids: &'a [String],
     pub show_impact_overlay: bool,
@@ -30,6 +35,107 @@ pub struct ArchitectureActivitySummary<'a> {
 }
 
 pub struct ArchitectureOverviewRenderer;
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SubsystemMapper {
+    rules: Vec<SubsystemMappingRule>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SubsystemMappingRule {
+    subsystem: String,
+    module_prefix: Option<String>,
+    file_path_prefix: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubsystemRulesFile {
+    rules: Vec<SubsystemRulesFileEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubsystemRulesFileEntry {
+    subsystem: String,
+    module_prefix: Option<String>,
+    file_path_prefix: Option<String>,
+}
+
+impl SubsystemMapper {
+    pub fn from_rules_json(raw: &str) -> Result<Self> {
+        let file = serde_json::from_str::<SubsystemRulesFile>(raw)
+            .context("failed to parse subsystem mapping rules as JSON")?;
+        ensure!(
+            !file.rules.is_empty(),
+            "subsystem mapping rules file must contain at least one rule"
+        );
+
+        let mut compiled_rules = Vec::with_capacity(file.rules.len());
+        for (index, entry) in file.rules.into_iter().enumerate() {
+            let subsystem = non_empty_trimmed(entry.subsystem)
+                .with_context(|| format!("rules[{index}].subsystem must be a non-empty string"))?;
+            let module_prefix =
+                optional_non_empty_trimmed(entry.module_prefix).with_context(|| {
+                    format!("rules[{index}].module_prefix must be non-empty when provided")
+                })?;
+            let file_path_prefix = optional_non_empty_trimmed(entry.file_path_prefix)
+                .with_context(|| {
+                    format!("rules[{index}].file_path_prefix must be non-empty when provided")
+                })?;
+
+            ensure!(
+                module_prefix.is_some() || file_path_prefix.is_some(),
+                "rules[{index}] must define module_prefix and/or file_path_prefix"
+            );
+
+            compiled_rules.push(SubsystemMappingRule {
+                subsystem,
+                module_prefix: module_prefix.map(normalize_module_prefix),
+                file_path_prefix: file_path_prefix.map(normalize_file_prefix),
+            });
+        }
+
+        Ok(Self {
+            rules: compiled_rules,
+        })
+    }
+
+    pub fn from_rules_file(path: &Path) -> Result<Self> {
+        let raw = fs::read_to_string(path).with_context(|| {
+            format!(
+                "failed to read subsystem mapping rules from {}",
+                path.display()
+            )
+        })?;
+        Self::from_rules_json(&raw)
+    }
+
+    pub fn resolve_subsystem(&self, node: &ArchitectureNode) -> String {
+        for rule in &self.rules {
+            if rule.matches(node) {
+                return rule.subsystem.clone();
+            }
+        }
+        default_subsystem_key(node)
+    }
+
+    pub fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+}
+
+impl SubsystemMappingRule {
+    fn matches(&self, node: &ArchitectureNode) -> bool {
+        let module_matches = self.module_prefix.as_ref().is_some_and(|prefix| {
+            module_path_for_matching(node).is_some_and(|path| path.starts_with(prefix))
+        });
+        let file_matches = self.file_path_prefix.as_ref().is_some_and(|prefix| {
+            file_path_for_matching(node).is_some_and(|path| path.starts_with(prefix))
+        });
+        module_matches || file_matches
+    }
+}
 
 #[derive(Default)]
 struct SubsystemBucket<'a> {
@@ -91,7 +197,7 @@ impl ArchitectureOverviewRenderer {
         let mut subsystem_buckets: BTreeMap<String, SubsystemBucket<'_>> = BTreeMap::new();
         let mut node_subsystems: HashMap<&str, String> = HashMap::new();
         for node in &input.graph.nodes {
-            let subsystem = subsystem_key(node);
+            let subsystem = input.subsystem_mapper.resolve_subsystem(node);
             node_subsystems.insert(node.id.as_str(), subsystem.clone());
             let bucket = subsystem_buckets.entry(subsystem).or_default();
             match node.kind {
@@ -430,7 +536,32 @@ fn layout_column<'a>(
     out
 }
 
-fn subsystem_key(node: &ArchitectureNode) -> String {
+fn module_path_for_matching(node: &ArchitectureNode) -> Option<&str> {
+    if node.kind != ArchitectureNodeKind::Module {
+        return None;
+    }
+    Some(
+        node.id
+            .strip_prefix("module:")
+            .unwrap_or(node.id.as_str())
+            .trim(),
+    )
+}
+
+fn file_path_for_matching(node: &ArchitectureNode) -> Option<&str> {
+    if node.kind != ArchitectureNodeKind::File {
+        return None;
+    }
+
+    let raw = if let Some(path) = &node.path {
+        path.as_str()
+    } else {
+        node.id.strip_prefix("file:").unwrap_or(node.id.as_str())
+    };
+    Some(raw.strip_prefix("./").unwrap_or(raw).trim())
+}
+
+fn default_subsystem_key(node: &ArchitectureNode) -> String {
     match node.kind {
         ArchitectureNodeKind::Module => {
             let raw = node.id.strip_prefix("module:").unwrap_or(node.id.as_str());
@@ -463,6 +594,34 @@ fn subsystem_key(node: &ArchitectureNode) -> String {
                 .to_owned()
         }
     }
+}
+
+fn normalize_module_prefix(prefix: String) -> String {
+    prefix
+        .strip_prefix("module:")
+        .unwrap_or(prefix.as_str())
+        .to_owned()
+}
+
+fn normalize_file_prefix(prefix: String) -> String {
+    let without_file_prefix = prefix
+        .strip_prefix("file:")
+        .unwrap_or(prefix.as_str())
+        .to_owned();
+    without_file_prefix
+        .strip_prefix("./")
+        .unwrap_or(without_file_prefix.as_str())
+        .to_owned()
+}
+
+fn non_empty_trimmed(value: String) -> Result<String> {
+    let trimmed = value.trim();
+    ensure!(!trimmed.is_empty(), "value cannot be empty");
+    Ok(trimmed.to_owned())
+}
+
+fn optional_non_empty_trimmed(value: Option<String>) -> Result<Option<String>> {
+    value.map(non_empty_trimmed).transpose()
 }
 
 fn clipped_system_label(label: &str) -> String {
@@ -593,7 +752,8 @@ mod tests {
 
     use super::{
         ArchitectureActivitySummary, ArchitectureOverviewRenderInput, ArchitectureOverviewRenderer,
-        CanvasToolCard, build_semantic_node_labels, split_node_parts, wrap_identifier_lines,
+        CanvasToolCard, SubsystemMapper, build_semantic_node_labels, split_node_parts,
+        wrap_identifier_lines,
     };
 
     #[test]
@@ -604,9 +764,11 @@ mod tests {
             title: "search_notes".to_owned(),
             body: "found 3".to_owned(),
         }];
+        let mapper = SubsystemMapper::default();
 
         let one = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &graph,
+            subsystem_mapper: &mapper,
             changed_target_ids: &["module:crate::tools".to_owned()],
             impact_target_ids: &["file:src/tools.rs".to_owned()],
             show_impact_overlay: true,
@@ -621,6 +783,7 @@ mod tests {
         });
         let two = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &graph,
+            subsystem_mapper: &mapper,
             changed_target_ids: &["module:crate::tools".to_owned()],
             impact_target_ids: &["file:src/tools.rs".to_owned()],
             show_impact_overlay: true,
@@ -640,8 +803,10 @@ mod tests {
     #[test]
     fn architecture_renderer_marks_changed_nodes_with_changed_style() {
         let graph = graph_fixture();
+        let mapper = SubsystemMapper::default();
         let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &graph,
+            subsystem_mapper: &mapper,
             changed_target_ids: &["module:crate::tools".to_owned()],
             impact_target_ids: &[],
             show_impact_overlay: false,
@@ -715,9 +880,11 @@ mod tests {
             revision: 1,
             generated_at: UNIX_EPOCH,
         };
+        let mapper = SubsystemMapper::default();
 
         let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &graph,
+            subsystem_mapper: &mapper,
             changed_target_ids: &[],
             impact_target_ids: &[],
             show_impact_overlay: false,
@@ -770,9 +937,11 @@ mod tests {
                 tool_call_count: 1,
             },
         ];
+        let mapper = SubsystemMapper::default();
 
         let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &graph,
+            subsystem_mapper: &mapper,
             changed_target_ids: &[],
             impact_target_ids: &[],
             show_impact_overlay: false,
@@ -829,9 +998,11 @@ mod tests {
             revision: 2,
             generated_at: UNIX_EPOCH,
         };
+        let mapper = SubsystemMapper::default();
 
         let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &after,
+            subsystem_mapper: &mapper,
             changed_target_ids: &["module:crate::tools".to_owned()],
             impact_target_ids: &[],
             show_impact_overlay: false,
@@ -885,9 +1056,11 @@ mod tests {
             revision: 3,
             generated_at: UNIX_EPOCH,
         };
+        let mapper = SubsystemMapper::default();
 
         let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
             graph: &graph,
+            subsystem_mapper: &mapper,
             changed_target_ids: &["module:crate::tools".to_owned()],
             impact_target_ids: &[],
             show_impact_overlay: false,
@@ -968,6 +1141,76 @@ mod tests {
         assert_eq!(
             wrapped.join("").replace("::", ""),
             "crateverylongmodulepath"
+        );
+    }
+
+    #[test]
+    fn subsystem_mapper_rules_override_default_grouping() {
+        let graph = graph_fixture();
+        let mapper = SubsystemMapper::from_rules_json(
+            r#"{
+                "rules": [
+                    { "subsystem": "runtime-core", "module_prefix": "crate::tools" },
+                    { "subsystem": "ui-shell", "file_path_prefix": "src/" }
+                ]
+            }"#,
+        )
+        .expect("valid rules should parse");
+
+        let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
+            graph: &graph,
+            subsystem_mapper: &mapper,
+            changed_target_ids: &[],
+            impact_target_ids: &[],
+            show_impact_overlay: false,
+            before_graph: None,
+            show_before_after_overlay: false,
+            show_focus_mode: false,
+            tool_cards: &[],
+            turn_in_flight: false,
+            canvas_status: "Idle",
+            recent_activity: &[],
+            sequence: 5,
+        });
+
+        let has_runtime_group = batch.commands.iter().any(|command| match command {
+            super::CanvasDrawCommand::UpsertGroup { group } => {
+                group.id == "group:system:runtime-core"
+            }
+            _ => false,
+        });
+        assert!(has_runtime_group);
+    }
+
+    #[test]
+    fn subsystem_mapper_rejects_unknown_fields() {
+        let error = SubsystemMapper::from_rules_json(
+            r#"{
+                "rules": [
+                    { "subsystem": "runtime", "module_prefix": "crate::tools", "oops": true }
+                ]
+            }"#,
+        )
+        .expect_err("unknown fields should be rejected");
+
+        assert!(format!("{error:#}").contains("unknown field"));
+    }
+
+    #[test]
+    fn subsystem_mapper_requires_at_least_one_matcher_per_rule() {
+        let error = SubsystemMapper::from_rules_json(
+            r#"{
+                "rules": [
+                    { "subsystem": "runtime" }
+                ]
+            }"#,
+        )
+        .expect_err("rules must have match criteria");
+
+        assert!(
+            error
+                .to_string()
+                .contains("module_prefix and/or file_path_prefix")
         );
     }
 

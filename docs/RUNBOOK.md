@@ -39,6 +39,8 @@ NOTES_DIR=notes
 SAVE_NOTE_ALLOW_OVERWRITE=false
 MODEL_TIMEOUT_MS=20000
 MODEL_MAX_RETRIES=2
+# Optional: studio-only subsystem grouping overrides.
+# STUDIO_SUBSYSTEM_RULES_FILE=.mjolne/subsystem_rules.json
 ```
 
 OpenAI fallback:
@@ -78,6 +80,24 @@ When running, it auto-refreshes workspace graph stats after chat-turn completion
 The UI is canvas-first with a collapsible chat rail and canvas controls for pan/zoom/fit plus mode toggles (`Live`, `Before/After`, `Focus`).
 Current studio visuals keep shell chrome minimal and focus the stage on subsystem-structured topology and change overlays.
 Roadmap direction is a full draw-command canvas platform: renderer modules will translate domain state (starting with architecture + agent-work context) into generic draw commands consumed by the canvas core.
+
+Optional studio subsystem mapping rules:
+- Set `STUDIO_SUBSYSTEM_RULES_FILE` to a JSON file path (absolute or workspace-relative).
+- Rules are evaluated in order; first match wins.
+- If no rule matches, studio falls back to built-in path/module heuristics.
+- The repo ships a starter file at `.mjolne/subsystem_rules.json`.
+
+Example `subsystem_rules.json`:
+
+```json
+{
+  "rules": [
+    { "subsystem": "runtime-core", "module_prefix": "crate::agent" },
+    { "subsystem": "runtime-core", "module_prefix": "crate::tools" },
+    { "subsystem": "ui-shell", "file_path_prefix": "src/studio/" }
+  ]
+}
+```
 
 ## Studio Change-Review Workflow
 
