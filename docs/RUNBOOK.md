@@ -75,9 +75,29 @@ cargo run -- studio
 
 `studio` opens a native desktop window and requires a graphical session.
 When running, it auto-refreshes workspace graph stats after chat-turn completion and debounced Rust file changes.
-The UI is canvas-first with a collapsible chat rail, canvas pan/zoom/fit controls, and tool-call cards rendered directly on the canvas stage.
-Current studio visuals emphasize clearer hierarchy in the shell (status/metadata chips, composer controls) and canvas readability (subtle guide grid + module/file lane tinting).
+The UI is canvas-first with a collapsible chat rail and canvas controls for pan/zoom/fit plus mode toggles (`Live`, `Before/After`, `Focus`).
+Current studio visuals keep shell chrome minimal and focus the stage on subsystem-structured topology and change overlays.
 Roadmap direction is a full draw-command canvas platform: renderer modules will translate domain state (starting with architecture + agent-work context) into generic draw commands consumed by the canvas core.
+
+## Studio Change-Review Workflow
+
+Use this sequence when reviewing what an agent turn changed:
+
+1. Keep canvas mode at `Live` while the turn runs.
+   - Purpose: see current topology and ensure graph refreshes are healthy.
+2. Switch to `Before/After` after a turn completes.
+   - Purpose: compare baseline vs outcome for the selected snapshot.
+   - Read: `Δ +A -R ~C` summary (`A` added, `R` removed, `C` changed).
+3. Switch to `Focus`.
+   - Purpose: dim unchanged topology and concentrate on changed + impact targets.
+4. Use snapshot navigation (`←` / `→`) in the canvas toolbar.
+   - Purpose: move across recorded turns and compare architectural drift over time.
+5. Use zoom/fit after snapshot changes.
+   - Purpose: keep changed regions in-frame for quick inspection.
+
+Operator guidance:
+- If `Before/After` shows minimal deltas but behavior changed, inspect edge differences and changed node labels first.
+- If `Focus` still looks noisy, step snapshots one-by-one and inspect high fan-out systems first.
 
 HTTP endpoints:
 - `GET /health`

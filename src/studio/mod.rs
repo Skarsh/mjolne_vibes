@@ -372,6 +372,7 @@ struct StudioApp {
     next_turn_snapshot_id: u64,
     pending_turn_snapshot: Option<PendingTurnSnapshot>,
     turn_snapshots: Vec<CanvasTurnSnapshot>,
+    selected_snapshot_index: Option<usize>,
     canvas_diff_mode: CanvasDiffMode,
     turn_summaries: Vec<CanvasTurnSummary>,
     theme_applied: bool,
@@ -412,6 +413,7 @@ impl StudioApp {
             next_turn_snapshot_id: 1,
             pending_turn_snapshot: None,
             turn_snapshots: Vec::new(),
+            selected_snapshot_index: None,
             canvas_diff_mode: CanvasDiffMode::Live,
             turn_summaries: Vec::new(),
             theme_applied: false,
@@ -666,13 +668,14 @@ impl StudioApp {
         let Some(graph) = self.canvas.graph().cloned() else {
             return;
         };
+        let selected_snapshot = self.selected_snapshot().cloned();
         let overlay_snapshot = if self.canvas_diff_mode == CanvasDiffMode::BeforeAfterLatestTurn {
-            self.turn_snapshots.last()
+            selected_snapshot.as_ref()
         } else {
             None
         };
         let focus_snapshot = if self.canvas_diff_mode == CanvasDiffMode::FocusLatestTurn {
-            self.turn_snapshots.last()
+            selected_snapshot.as_ref()
         } else {
             None
         };
@@ -994,6 +997,33 @@ impl StudioApp {
                             if ui.button("Fit").clicked() {
                                 self.canvas_viewport.fit_to_view();
                             }
+                            let has_snapshots = !self.turn_snapshots.is_empty();
+                            let selected_index = self.selected_snapshot_index();
+                            if ui
+                                .add_enabled(has_snapshots, egui::Button::new("←"))
+                                .clicked()
+                            {
+                                self.select_previous_snapshot();
+                                self.render_architecture_overview_scene();
+                            }
+                            let snapshot_label = if let Some(index) = selected_index {
+                                format!("{}/{}", index + 1, self.turn_snapshots.len())
+                            } else {
+                                "0/0".to_owned()
+                            };
+                            ui.label(
+                                egui::RichText::new(snapshot_label)
+                                    .small()
+                                    .strong()
+                                    .color(studio_muted_text()),
+                            );
+                            if ui
+                                .add_enabled(has_snapshots, egui::Button::new("→"))
+                                .clicked()
+                            {
+                                self.select_next_snapshot();
+                                self.render_architecture_overview_scene();
+                            }
                             let before_after_selected =
                                 self.canvas_diff_mode == CanvasDiffMode::BeforeAfterLatestTurn;
                             let before_after_label = if before_after_selected {
@@ -1039,6 +1069,42 @@ impl StudioApp {
                     });
             });
         });
+        if let Some(snapshot) = self.selected_snapshot() {
+            ui.horizontal_wrapped(|ui| {
+                Self::chip(
+                    ui,
+                    format!("turn {}", snapshot.turn_id),
+                    egui::Color32::from_rgb(236, 245, 253),
+                    studio_border(),
+                    studio_muted_text(),
+                );
+                let baseline = snapshot
+                    .baseline_revision
+                    .map(|value| value.to_string())
+                    .unwrap_or_else(|| "n/a".to_owned());
+                Self::chip(
+                    ui,
+                    format!("rev {baseline} → {}", snapshot.outcome_revision),
+                    egui::Color32::from_rgb(236, 245, 253),
+                    studio_border(),
+                    studio_muted_text(),
+                );
+                Self::chip(
+                    ui,
+                    format!("changed {}", snapshot.changed_target_ids.len()),
+                    egui::Color32::from_rgb(255, 237, 218),
+                    egui::Color32::from_rgb(223, 167, 108),
+                    egui::Color32::from_rgb(153, 100, 34),
+                );
+                Self::chip(
+                    ui,
+                    format!("impact {}", snapshot.impact_target_ids.len()),
+                    egui::Color32::from_rgb(224, 240, 251),
+                    egui::Color32::from_rgb(146, 184, 214),
+                    egui::Color32::from_rgb(43, 97, 140),
+                );
+            });
+        }
 
         let surface_height = ui.available_height().max(240.0);
         self.render_canvas_surface(ui, surface_height);
@@ -1069,6 +1135,38 @@ impl StudioApp {
             let extra = self.turn_snapshots.len() - MAX_TURN_SNAPSHOTS;
             self.turn_snapshots.drain(0..extra);
         }
+        self.selected_snapshot_index = self.turn_snapshots.len().checked_sub(1);
+    }
+
+    fn selected_snapshot_index(&self) -> Option<usize> {
+        let Some(last_index) = self.turn_snapshots.len().checked_sub(1) else {
+            return None;
+        };
+        Some(
+            self.selected_snapshot_index
+                .unwrap_or(last_index)
+                .min(last_index),
+        )
+    }
+
+    fn selected_snapshot(&self) -> Option<&CanvasTurnSnapshot> {
+        let index = self.selected_snapshot_index()?;
+        self.turn_snapshots.get(index)
+    }
+
+    fn select_previous_snapshot(&mut self) {
+        let Some(current) = self.selected_snapshot_index() else {
+            return;
+        };
+        self.selected_snapshot_index = Some(current.saturating_sub(1));
+    }
+
+    fn select_next_snapshot(&mut self) {
+        let Some(current) = self.selected_snapshot_index() else {
+            return;
+        };
+        let last_index = self.turn_snapshots.len().saturating_sub(1);
+        self.selected_snapshot_index = Some((current + 1).min(last_index));
     }
 
     fn render_chat_entry(&self, ui: &mut egui::Ui, entry: &ChatEntry) {
@@ -1314,9 +1412,9 @@ mod tests {
     use crate::test_support::{remove_dir_if_exists, temp_path};
 
     use super::{
-        CanvasDiffMode, CanvasOp, CanvasState, GraphSurfaceState, MAX_GRAPH_UPDATES_PER_FRAME,
-        PendingTurnSnapshot, StudioApp, StudioCommand, StudioEvent, build_highlight_node_ids,
-        graph_change_delta, spawn_runtime_worker, summarize_for_canvas,
+        CanvasDiffMode, CanvasOp, CanvasState, CanvasTurnSnapshot, GraphSurfaceState,
+        MAX_GRAPH_UPDATES_PER_FRAME, PendingTurnSnapshot, StudioApp, StudioCommand, StudioEvent,
+        build_highlight_node_ids, graph_change_delta, spawn_runtime_worker, summarize_for_canvas,
     };
 
     #[test]
@@ -1479,6 +1577,67 @@ mod tests {
 
         surface.last_refresh_trigger = Some("turn_completed".to_owned());
         assert_eq!(surface.last_trigger_label(), "turn_completed");
+    }
+
+    #[tokio::test]
+    async fn snapshot_navigation_moves_selection_within_bounds() {
+        let workspace_root = create_workspace_root("studio-snapshot-selection");
+        let (command_tx, _command_rx) = unbounded_channel();
+        let (_event_tx, event_rx) = unbounded_channel();
+        let (_graph_update_tx, graph_update_rx) = unbounded_channel();
+        let runtime_handle = Handle::current();
+        let (graph_watch_handle, _graph_watch_rx) =
+            spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
+        let mut app = StudioApp::new(
+            studio_test_settings(8),
+            command_tx,
+            event_rx,
+            graph_update_rx,
+            graph_watch_handle.clone(),
+            workspace_root.clone(),
+        );
+        app.selected_snapshot_index = Some(1);
+        app.turn_snapshots = vec![
+            CanvasTurnSnapshot {
+                turn_id: 1,
+                started_at: UNIX_EPOCH,
+                completed_at: UNIX_EPOCH,
+                baseline_revision: Some(1),
+                outcome_revision: 2,
+                changed_target_ids: vec![],
+                impact_target_ids: vec![],
+                intent_target_ids: vec![],
+                baseline_graph: None,
+                outcome_graph: graph_for_test(2, &["module:crate"], &[]),
+            },
+            CanvasTurnSnapshot {
+                turn_id: 2,
+                started_at: UNIX_EPOCH,
+                completed_at: UNIX_EPOCH,
+                baseline_revision: Some(2),
+                outcome_revision: 3,
+                changed_target_ids: vec![],
+                impact_target_ids: vec![],
+                intent_target_ids: vec![],
+                baseline_graph: None,
+                outcome_graph: graph_for_test(3, &["module:crate"], &[]),
+            },
+        ];
+
+        app.select_previous_snapshot();
+        assert_eq!(app.selected_snapshot_index(), Some(0));
+
+        app.select_previous_snapshot();
+        assert_eq!(app.selected_snapshot_index(), Some(0));
+
+        app.select_next_snapshot();
+        assert_eq!(app.selected_snapshot_index(), Some(1));
+
+        app.select_next_snapshot();
+        assert_eq!(app.selected_snapshot_index(), Some(1));
+
+        graph_watch_handle.shutdown();
+        remove_dir_if_exists(&workspace_root);
     }
 
     #[tokio::test]

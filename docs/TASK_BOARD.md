@@ -9,7 +9,7 @@ Current execution board for maintenance work.
 
 ## Active tasks
 
-- [ ] Document operator workflow for using studio canvas to review agent changes faster than diffs.
+- None currently.
 
 ## Backlog candidates
 
