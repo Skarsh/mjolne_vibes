@@ -990,10 +990,8 @@ impl StudioApp {
         };
         let stage_height = (ui.available_height() - annotation_height).max(260.0);
 
-        Self::card_frame(ui).show(ui, |ui| {
-            let surface_height = (stage_height - 14.0).max(240.0);
-            self.render_canvas_surface(ui, surface_height);
-        });
+        let surface_height = (stage_height - 14.0).max(240.0);
+        self.render_canvas_surface(ui, surface_height);
 
         if !self.canvas.annotations().is_empty() {
             Self::card_frame(ui).show(ui, |ui| {

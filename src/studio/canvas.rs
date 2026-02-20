@@ -478,12 +478,7 @@ fn render_canvas_surface_frame(
     let desired_size = canvas_desired_size(ui.available_width(), surface_height);
     let (response, painter) = ui.allocate_painter(desired_size, egui::Sense::drag());
     let frame = response.rect.shrink(CANVAS_FRAME_INSET);
-    painter.rect_filled(frame, 12.0, egui::Color32::from_rgb(244, 250, 255));
-    painter.rect_filled(
-        frame.shrink(1.0),
-        11.0,
-        egui::Color32::from_rgb(251, 253, 255),
-    );
+    painter.rect_filled(frame, 12.0, egui::Color32::from_rgb(251, 253, 255));
     painter.rect_stroke(
         frame,
         12.0,
