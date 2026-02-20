@@ -10,7 +10,6 @@ Current execution board for maintenance work.
 
 ## Active tasks
 
-- [ ] [SG-06] Introduce a graph surface adapter path (or equivalent split module) so graph rendering is one surface implementation, not the canvas core (`src/studio/mod.rs`, `src/studio/canvas.rs`).
 - [ ] [SG-07] Evolve `CanvasOp`/canvas state toward generic drawing-intent primitives while preserving compatibility with current graph operations during transition (`src/studio/events.rs`, `src/studio/canvas.rs`).
 - [ ] [SG-08] Keep graph watch + diff/highlight logic isolated from generic canvas shell behavior; preserve non-blocking chat turn behavior and failure isolation (`src/graph/watch.rs`, `src/studio/mod.rs`).
 - [ ] [SG-09] Add/adjust reducer and rendering tests for the new generic-vs-graph boundaries and toolbar/inspector behavior (`src/studio/canvas.rs`, `src/studio/mod.rs` tests).
@@ -24,6 +23,7 @@ Current execution board for maintenance work.
 
 ## Recently completed
 
+- [x] [SG-06] Introduced a canvas surface adapter path so graph rendering is dispatched as one surface implementation (`CanvasSurfaceAdapter`/`GraphSurfaceAdapterOptions`) rather than direct canvas-core coupling (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-20).
 - [x] [SG-05] Refactored canvas rendering boundaries by extracting reusable canvas frame/layout + viewport input handling from graph-specific drawing, and added focused layout boundary tests (`src/studio/canvas.rs`) (2026-02-20).
 - [x] [SG-04] Added an opt-in graph inspector card with graph-specific telemetry (revision, node/edge counts, changed/impact counts, refresh trigger) and kept it hidden by default behind graph options (`src/studio/mod.rs`) (2026-02-20).
 - [x] [SG-03] Kept the primary canvas toolbar viewport-only and moved graph-specific visual affordances behind graph options (including opt-in legend/hover hint rendering) (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-20).

@@ -213,13 +213,80 @@ pub struct CanvasToolCard {
     pub body: String,
 }
 
-pub struct GraphRenderOptions<'a> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CanvasSurfaceAdapterKind {
+    ArchitectureGraph,
+}
+
+impl CanvasSurfaceAdapterKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::ArchitectureGraph => "Architecture graph",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct GraphSurfaceAdapterOptions<'a> {
     pub changed_node_ids: &'a [String],
     pub impact_node_ids: &'a [String],
     pub show_impact_overlay: bool,
     pub show_graph_legend: bool,
-    pub surface_height: f32,
     pub tool_cards: &'a [CanvasToolCard],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum CanvasSurfaceAdapter<'a> {
+    ArchitectureGraph {
+        options: GraphSurfaceAdapterOptions<'a>,
+    },
+}
+
+impl<'a> CanvasSurfaceAdapter<'a> {
+    pub fn architecture_graph(options: GraphSurfaceAdapterOptions<'a>) -> Self {
+        Self::ArchitectureGraph { options }
+    }
+
+    pub fn kind(&self) -> CanvasSurfaceAdapterKind {
+        match self {
+            Self::ArchitectureGraph { .. } => CanvasSurfaceAdapterKind::ArchitectureGraph,
+        }
+    }
+
+    pub fn render(
+        self,
+        ui: &mut egui::Ui,
+        state: &CanvasState,
+        viewport: &mut CanvasViewport,
+        surface_height: f32,
+    ) {
+        match self {
+            Self::ArchitectureGraph { options } => {
+                render_graph_snapshot(
+                    ui,
+                    state,
+                    viewport,
+                    GraphRenderOptions {
+                        changed_node_ids: options.changed_node_ids,
+                        impact_node_ids: options.impact_node_ids,
+                        show_impact_overlay: options.show_impact_overlay,
+                        show_graph_legend: options.show_graph_legend,
+                        surface_height,
+                        tool_cards: options.tool_cards,
+                    },
+                );
+            }
+        }
+    }
+}
+
+struct GraphRenderOptions<'a> {
+    changed_node_ids: &'a [String],
+    impact_node_ids: &'a [String],
+    show_impact_overlay: bool,
+    show_graph_legend: bool,
+    surface_height: f32,
+    tool_cards: &'a [CanvasToolCard],
 }
 
 struct CanvasSurfaceFrame {
@@ -265,7 +332,7 @@ fn render_canvas_surface_frame(
     }
 }
 
-pub fn render_graph_snapshot(
+fn render_graph_snapshot(
     ui: &mut egui::Ui,
     state: &CanvasState,
     viewport: &mut CanvasViewport,
@@ -617,7 +684,8 @@ mod tests {
     };
 
     use super::{
-        CanvasOp, CanvasState, canvas_content_rect, canvas_desired_size, clipped_label,
+        CanvasOp, CanvasState, CanvasSurfaceAdapter, CanvasSurfaceAdapterKind, CanvasToolCard,
+        GraphSurfaceAdapterOptions, canvas_content_rect, canvas_desired_size, clipped_label,
         compute_node_positions,
     };
 
@@ -813,6 +881,27 @@ mod tests {
 
         assert_eq!(content.min, egui::pos2(34.0, 44.0));
         assert_eq!(content.max, egui::pos2(186.0, 116.0));
+    }
+
+    #[test]
+    fn canvas_surface_adapter_reports_graph_kind() {
+        let changed = vec!["module:crate".to_owned()];
+        let impact = vec!["module:crate::tools".to_owned()];
+        let cards = vec![CanvasToolCard {
+            id: "card-1".to_owned(),
+            title: "Tool".to_owned(),
+            body: "details".to_owned(),
+        }];
+        let adapter = CanvasSurfaceAdapter::architecture_graph(GraphSurfaceAdapterOptions {
+            changed_node_ids: &changed,
+            impact_node_ids: &impact,
+            show_impact_overlay: true,
+            show_graph_legend: false,
+            tool_cards: &cards,
+        });
+
+        assert_eq!(adapter.kind(), CanvasSurfaceAdapterKind::ArchitectureGraph);
+        assert_eq!(adapter.kind().label(), "Architecture graph");
     }
 
     fn graph_with_nodes(revision: u64, node_ids: &[&str]) -> ArchitectureGraph {

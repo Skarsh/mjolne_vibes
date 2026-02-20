@@ -18,7 +18,8 @@ pub mod canvas;
 pub mod events;
 
 use self::canvas::{
-    CanvasState, CanvasToolCard, CanvasViewport, GraphRenderOptions, render_graph_snapshot,
+    CanvasState, CanvasSurfaceAdapter, CanvasSurfaceAdapterKind, CanvasToolCard, CanvasViewport,
+    GraphSurfaceAdapterOptions,
 };
 use self::events::{CanvasOp, StudioCommand, StudioEvent, StudioTurnResult};
 
@@ -205,18 +206,7 @@ struct CanvasTurnSummary {
     tool_call_count: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CanvasSurfaceKind {
-    ArchitectureGraph,
-}
-
-impl CanvasSurfaceKind {
-    fn label(self) -> &'static str {
-        match self {
-            Self::ArchitectureGraph => "Architecture graph",
-        }
-    }
-}
+type CanvasSurfaceKind = CanvasSurfaceAdapterKind;
 
 struct StudioApp {
     settings: AgentSettings,
@@ -730,20 +720,35 @@ impl StudioApp {
 
     fn render_canvas_surface(&mut self, ui: &mut egui::Ui, surface_height: f32) {
         // Canvas surface dispatch point for future renderers (timeline, diffs, notes).
-        match self.active_canvas_surface {
-            CanvasSurfaceKind::ArchitectureGraph => render_graph_snapshot(
-                ui,
-                &self.canvas,
-                &mut self.canvas_viewport,
-                GraphRenderOptions {
-                    changed_node_ids: &self.changed_node_ids,
-                    impact_node_ids: &self.impact_node_ids,
-                    show_impact_overlay: self.impact_overlay_enabled,
-                    show_graph_legend: self.graph_legend_enabled,
-                    surface_height,
-                    tool_cards: &self.canvas_tool_cards,
-                },
-            ),
+        let surface_adapter = Self::build_canvas_surface_adapter(
+            self.active_canvas_surface,
+            &self.changed_node_ids,
+            &self.impact_node_ids,
+            self.impact_overlay_enabled,
+            self.graph_legend_enabled,
+            &self.canvas_tool_cards,
+        );
+        surface_adapter.render(ui, &self.canvas, &mut self.canvas_viewport, surface_height);
+    }
+
+    fn build_canvas_surface_adapter<'a>(
+        active_surface: CanvasSurfaceKind,
+        changed_node_ids: &'a [String],
+        impact_node_ids: &'a [String],
+        show_impact_overlay: bool,
+        show_graph_legend: bool,
+        tool_cards: &'a [CanvasToolCard],
+    ) -> CanvasSurfaceAdapter<'a> {
+        match active_surface {
+            CanvasSurfaceKind::ArchitectureGraph => {
+                CanvasSurfaceAdapter::architecture_graph(GraphSurfaceAdapterOptions {
+                    changed_node_ids,
+                    impact_node_ids,
+                    show_impact_overlay,
+                    show_graph_legend,
+                    tool_cards,
+                })
+            }
         }
     }
 
