@@ -31,7 +31,7 @@ Current execution board for maintenance work.
     - run `cargo test --all-targets --all-features`
   - Deliverables:
     - repo sample rules file: `.mjolne/subsystem_rules.json`
-- [ ] Studio visual hierarchy + polish pass (Rerun-inspired, non-generic UI).
+- [x] Studio visual hierarchy + polish pass (Rerun-inspired, non-generic UI). (Completed: 2026-02-20)
   - Goal: reduce “flat/bland” appearance and improve information hierarchy in `studio` while preserving current behavior and safety contracts.
   - Problem statement:
     - current shell uses a narrow color/luminance range, near-uniform stroke weights, and limited type hierarchy
@@ -84,8 +84,10 @@ Current execution board for maintenance work.
       - tightened small-width density:
         - compact toolbar labels (`B/A`, `F On`) with wrapped controls
         - chat pane hides workspace chip under narrow widths and reduces composer reservation
-    - pending:
-      - optional second-pass visual tune after user review feedback
+      - second-pass visual tune after review feedback:
+        - responsive top-bar compaction on narrow widths (short labels + reduced chip load)
+        - chat rail status/message chips for better collapsed-mode signal
+        - refined compact toolbar labels/controls (`Fit View` vs `Fit`, narrow zoom glyph fallback)
 
 ## Backlog candidates
 

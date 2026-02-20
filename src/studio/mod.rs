@@ -604,6 +604,7 @@ impl StudioApp {
     }
 
     fn render_top_bar(&mut self, ui: &mut egui::Ui) {
+        let compact_header = ui.available_width() < 760.0;
         let (status_label, status_fill, status_stroke, status_text_color) = self.session_status();
         ui.horizontal(|ui| {
             let accent_rect =
@@ -613,7 +614,9 @@ impl StudioApp {
             ui.add_space(8.0);
             let toggle_button = egui::Button::new(
                 egui::RichText::new(if self.chat_panel_expanded {
-                    "Hide chat"
+                    if compact_header { "Hide" } else { "Hide chat" }
+                } else if compact_header {
+                    "Chat"
                 } else {
                     "Show chat"
                 })
@@ -629,7 +632,7 @@ impl StudioApp {
             }
             ui.add_space(6.0);
             ui.label(
-                egui::RichText::new("Studio")
+                egui::RichText::new(if compact_header { "mjolne" } else { "Studio" })
                     .heading()
                     .strong()
                     .color(studio_text()),
@@ -651,26 +654,32 @@ impl StudioApp {
         ui.horizontal_wrapped(|ui| {
             Self::chip(
                 ui,
-                format!("{} / {}", self.settings.model_provider, self.settings.model),
+                if compact_header {
+                    self.settings.model_provider.to_string()
+                } else {
+                    format!("{} / {}", self.settings.model_provider, self.settings.model)
+                },
                 egui::Color32::from_rgb(231, 243, 252),
                 studio_border(),
                 studio_muted_text(),
             );
-            let refresh = self
-                .graph_surface
-                .last_refresh_trigger
-                .as_deref()
-                .unwrap_or("not yet refreshed");
+            if !compact_header {
+                let refresh = self
+                    .graph_surface
+                    .last_refresh_trigger
+                    .as_deref()
+                    .unwrap_or("not yet refreshed");
+                Self::chip(
+                    ui,
+                    format!("graph {refresh}"),
+                    egui::Color32::from_rgb(235, 242, 250),
+                    studio_border(),
+                    studio_muted_text(),
+                );
+            }
             Self::chip(
                 ui,
-                format!("graph {refresh}"),
-                egui::Color32::from_rgb(235, 242, 250),
-                studio_border(),
-                studio_muted_text(),
-            );
-            Self::chip(
-                ui,
-                truncate_ui_text(&self.canvas_status, 52),
+                truncate_ui_text(&self.canvas_status, if compact_header { 34 } else { 52 }),
                 egui::Color32::from_rgb(233, 246, 240),
                 egui::Color32::from_rgb(143, 184, 167),
                 egui::Color32::from_rgb(35, 104, 81),
@@ -994,6 +1003,7 @@ impl StudioApp {
     }
 
     fn render_chat_rail(&mut self, ui: &mut egui::Ui) {
+        let (status_label, status_fill, status_stroke, status_text_color) = self.session_status();
         ui.vertical_centered(|ui| {
             let open_button = egui::Button::new(
                 egui::RichText::new("›")
@@ -1019,6 +1029,20 @@ impl StudioApp {
                     .small()
                     .strong()
                     .color(studio_text()),
+            );
+            Self::chip(
+                ui,
+                format!("{} msg", self.chat_history.len()),
+                egui::Color32::from_rgb(232, 244, 254),
+                studio_border(),
+                studio_muted_text(),
+            );
+            Self::chip(
+                ui,
+                status_label,
+                status_fill,
+                status_stroke,
+                status_text_color,
             );
             if self.turn_in_flight {
                 ui.add(egui::Spinner::new());
@@ -1077,7 +1101,10 @@ impl StudioApp {
                     .inner_margin(egui::Margin::symmetric(7, 4))
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            if ui.button("Fit").clicked() {
+                            if ui
+                                .button(if compact_toolbar { "Fit" } else { "Fit View" })
+                                .clicked()
+                            {
                                 self.canvas_viewport.fit_to_view();
                             }
                             let has_snapshots = !self.turn_snapshots.is_empty();
@@ -1158,7 +1185,7 @@ impl StudioApp {
                             {
                                 self.canvas_viewport.reset();
                             }
-                            if ui.button("−").clicked() {
+                            if ui.button(if compact_toolbar { "-" } else { "−" }).clicked() {
                                 self.canvas_viewport.zoom_out();
                             }
                         });
