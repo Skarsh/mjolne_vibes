@@ -198,75 +198,12 @@ impl ArchitectureOverviewRenderer {
             });
         }
 
-        for (index, card) in input.tool_cards.iter().rev().take(5).enumerate() {
-            commands.push(CanvasDrawCommand::UpsertShape {
-                shape: CanvasShapeObject {
-                    id: format!("tool-card:{index}:{}", card.id),
-                    layer: 220,
-                    kind: CanvasShapeKind::Text,
-                    points: vec![CanvasPoint {
-                        x: 940,
-                        y: 70 + (index as i32 * 55),
-                    }],
-                    text: Some(format!("Tool: {} | {}", card.title, card.body)),
-                    style: CanvasStyle {
-                        fill_color: Some("#e9f5ff".to_owned()),
-                        stroke_color: Some("#446fa6".to_owned()),
-                        stroke_width_px: Some(1),
-                        text_color: Some("#274262".to_owned()),
-                    },
-                },
-            });
-        }
-
-        let status_color = if input.turn_in_flight {
-            "#9a6320"
-        } else {
-            "#315f88"
-        };
-        commands.push(CanvasDrawCommand::UpsertShape {
-            shape: CanvasShapeObject {
-                id: "status:activity".to_owned(),
-                layer: 230,
-                kind: CanvasShapeKind::Text,
-                points: vec![CanvasPoint { x: 80, y: 24 }],
-                text: Some(if input.turn_in_flight {
-                    format!("In-flight: {}", input.canvas_status)
-                } else {
-                    format!("Status: {}", input.canvas_status)
-                }),
-                style: CanvasStyle {
-                    fill_color: None,
-                    stroke_color: None,
-                    stroke_width_px: None,
-                    text_color: Some(status_color.to_owned()),
-                },
-            },
-        });
-
-        for (index, summary) in input.recent_activity.iter().rev().take(3).enumerate() {
-            commands.push(CanvasDrawCommand::UpsertShape {
-                shape: CanvasShapeObject {
-                    id: format!("summary:{index}"),
-                    layer: 231,
-                    kind: CanvasShapeKind::Text,
-                    points: vec![CanvasPoint {
-                        x: 940,
-                        y: 410 + (index as i32 * 38),
-                    }],
-                    text: Some(format!(
-                        "Done · {} · tools {} · {}",
-                        summary.user_message, summary.tool_call_count, summary.assistant_preview
-                    )),
-                    style: CanvasStyle {
-                        fill_color: None,
-                        stroke_color: None,
-                        stroke_width_px: None,
-                        text_color: Some("#3d536b".to_owned()),
-                    },
-                },
-            });
-        }
+        let _ = (
+            input.tool_cards,
+            input.turn_in_flight,
+            input.canvas_status,
+            input.recent_activity,
+        );
 
         commands.push(CanvasDrawCommand::SetViewportHint {
             hint: CanvasViewportHint {
@@ -637,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn architecture_renderer_emits_in_flight_status_and_recent_activity_summaries() {
+    fn architecture_renderer_does_not_emit_activity_or_tool_overlay_text() {
         let graph = graph_fixture();
         let activity = vec![
             ArchitectureActivitySummary {
@@ -664,27 +601,15 @@ mod tests {
             sequence: 3,
         });
 
-        let status = batch.commands.iter().find_map(|command| match command {
-            super::CanvasDrawCommand::UpsertShape { shape } if shape.id == "status:activity" => {
-                shape.text.as_deref()
+        let has_overlay_shape = batch.commands.iter().any(|command| match command {
+            super::CanvasDrawCommand::UpsertShape { shape } => {
+                shape.id == "status:activity"
+                    || shape.id.starts_with("summary:")
+                    || shape.id.starts_with("tool-card:")
             }
-            _ => None,
+            _ => false,
         });
-        assert_eq!(status, Some("In-flight: Running turn for: inspect parser"));
-
-        let summaries = batch
-            .commands
-            .iter()
-            .filter_map(|command| match command {
-                super::CanvasDrawCommand::UpsertShape { shape }
-                    if shape.id.starts_with("summary:") =>
-                {
-                    Some(shape.id.as_str())
-                }
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(summaries.len(), 2);
+        assert!(!has_overlay_shape);
     }
 
     #[test]

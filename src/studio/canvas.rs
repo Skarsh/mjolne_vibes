@@ -349,6 +349,16 @@ impl CanvasViewport {
         canvas_center + ((position - canvas_center) * self.zoom) + self.pan
     }
 
+    fn transformed_position_in_scene(
+        &self,
+        position: egui::Pos2,
+        canvas_center: egui::Pos2,
+        scene_origin: egui::Pos2,
+    ) -> egui::Pos2 {
+        let scene_position = scene_origin + position.to_vec2();
+        self.transformed_position(scene_position, canvas_center)
+    }
+
     fn zoom_clamped(&self, min: f32, max: f32) -> f32 {
         self.zoom.clamp(min, max)
     }
@@ -764,6 +774,9 @@ fn render_draw_scene(
     show_legend: bool,
 ) {
     let surface = render_canvas_surface_frame(ui, viewport, surface_height);
+    let canvas_center = surface.frame.center();
+    let scene_origin = surface.frame.min;
+    let scene_painter = surface.painter.with_clip_rect(surface.frame);
     let scene = state.draw_scene();
 
     if scene.ordered_object_ids().is_empty() {
@@ -790,8 +803,8 @@ fn render_draw_scene(
         let Some(to) = shape_centers.get(connector.to_id.as_str()).copied() else {
             continue;
         };
-        let from = viewport.transformed_position(from, surface.frame.center());
-        let to = viewport.transformed_position(to, surface.frame.center());
+        let from = viewport.transformed_position_in_scene(from, canvas_center, scene_origin);
+        let to = viewport.transformed_position_in_scene(to, canvas_center, scene_origin);
         let stroke = egui::Stroke::new(
             connector.style.stroke_width_px.unwrap_or(1) as f32,
             parse_color(
@@ -799,20 +812,21 @@ fn render_draw_scene(
                 egui::Color32::from_rgb(125, 145, 169),
             ),
         );
-        surface.painter.line_segment([from, to], stroke);
+        scene_painter.line_segment([from, to], stroke);
     }
 
     let mut rect_shapes = Vec::new();
     for shape in scene.shapes() {
         draw_shape(
-            &surface.painter,
+            &scene_painter,
             shape,
             viewport,
-            surface.frame.center(),
+            canvas_center,
+            scene_origin,
             ui.visuals().text_color(),
         );
         if shape.kind == CanvasShapeKind::Rectangle
-            && let Some(rect) = rectangle_shape_rect(shape, viewport, surface.frame.center())
+            && let Some(rect) = rectangle_shape_rect(shape, viewport, canvas_center, scene_origin)
         {
             rect_shapes.push((shape.id.as_str(), rect));
         }
@@ -856,6 +870,7 @@ fn draw_shape(
     shape: &CanvasShapeObject,
     viewport: &CanvasViewport,
     canvas_center: egui::Pos2,
+    scene_origin: egui::Pos2,
     default_text_color: egui::Color32,
 ) {
     let fill_color = parse_color(
@@ -876,13 +891,17 @@ fn draw_shape(
         .points
         .iter()
         .map(|point| {
-            viewport.transformed_position(egui::pos2(point.x as f32, point.y as f32), canvas_center)
+            viewport.transformed_position_in_scene(
+                egui::pos2(point.x as f32, point.y as f32),
+                canvas_center,
+                scene_origin,
+            )
         })
         .collect::<Vec<_>>();
 
     match shape.kind {
         CanvasShapeKind::Rectangle => {
-            if let Some(rect) = rectangle_shape_rect(shape, viewport, canvas_center) {
+            if let Some(rect) = rectangle_shape_rect(shape, viewport, canvas_center, scene_origin) {
                 painter.rect_filled(rect, 8.0, fill_color);
                 painter.rect_stroke(rect, 8.0, stroke, egui::StrokeKind::Outside);
                 if let Some(text) = &shape.text {
@@ -1143,12 +1162,17 @@ fn rectangle_shape_rect(
     shape: &CanvasShapeObject,
     viewport: &CanvasViewport,
     canvas_center: egui::Pos2,
+    scene_origin: egui::Pos2,
 ) -> Option<egui::Rect> {
     let points = shape
         .points
         .iter()
         .map(|point| {
-            viewport.transformed_position(egui::pos2(point.x as f32, point.y as f32), canvas_center)
+            viewport.transformed_position_in_scene(
+                egui::pos2(point.x as f32, point.y as f32),
+                canvas_center,
+                scene_origin,
+            )
         })
         .collect::<Vec<_>>();
     if points.len() < 2 {
@@ -1554,6 +1578,17 @@ mod tests {
 
         assert_eq!(content.min, egui::pos2(34.0, 44.0));
         assert_eq!(content.max, egui::pos2(186.0, 116.0));
+    }
+
+    #[test]
+    fn viewport_scene_transform_offsets_by_content_origin() {
+        let viewport = super::CanvasViewport::default();
+        let position = egui::pos2(80.0, 72.0);
+        let center = egui::pos2(320.0, 220.0);
+        let scene_origin = egui::pos2(40.0, 60.0);
+
+        let transformed = viewport.transformed_position_in_scene(position, center, scene_origin);
+        assert_eq!(transformed, egui::pos2(120.0, 132.0));
     }
 
     #[test]
