@@ -9,7 +9,6 @@ Current execution board for maintenance work.
 
 ## Active tasks
 
-- [ ] Implement per-turn focus mode (dim unchanged topology; emphasize changed + impact) with tests.
 - [ ] Document operator workflow for using studio canvas to review agent changes faster than diffs.
 
 ## Backlog candidates

@@ -15,6 +15,7 @@ pub struct ArchitectureOverviewRenderInput<'a> {
     pub show_impact_overlay: bool,
     pub before_graph: Option<&'a ArchitectureGraph>,
     pub show_before_after_overlay: bool,
+    pub show_focus_mode: bool,
     pub tool_cards: &'a [CanvasToolCard],
     pub turn_in_flight: bool,
     pub canvas_status: &'a str,
@@ -169,6 +170,7 @@ impl ArchitectureOverviewRenderer {
                     *x,
                     *y,
                     node_delta_kind(node.id.as_str(), &before_node_ids, &changed, &impact),
+                    input.show_focus_mode,
                 );
                 fit_ids.push(shape.id.clone());
                 module_shape_ids.push(shape.id.clone());
@@ -194,6 +196,7 @@ impl ArchitectureOverviewRenderer {
                     *x,
                     *y,
                     node_delta_kind(node.id.as_str(), &before_node_ids, &changed, &impact),
+                    input.show_focus_mode,
                 );
                 fit_ids.push(shape.id.clone());
                 file_shape_ids.push(shape.id.clone());
@@ -248,6 +251,10 @@ impl ArchitectureOverviewRenderer {
             }
         }
         for edge in edges {
+            let edge_has_focus_target = changed.contains(edge.from.as_str())
+                || changed.contains(edge.to.as_str())
+                || impact.contains(edge.from.as_str())
+                || impact.contains(edge.to.as_str());
             let same_subsystem = node_subsystems
                 .get(edge.from.as_str())
                 .zip(node_subsystems.get(edge.to.as_str()))
@@ -265,6 +272,13 @@ impl ArchitectureOverviewRenderer {
                         fill_color: None,
                         stroke_color: Some("#3f89b2".to_owned()),
                         stroke_width_px: Some(2),
+                        text_color: None,
+                    }
+                } else if input.show_focus_mode && !edge_has_focus_target {
+                    CanvasStyle {
+                        fill_color: None,
+                        stroke_color: Some("#d8e0ea".to_owned()),
+                        stroke_width_px: Some(1),
                         text_color: None,
                     }
                 } else if same_subsystem {
@@ -322,14 +336,16 @@ fn build_node_shape(
     x: i32,
     y: i32,
     delta_kind: NodeDeltaKind,
+    show_focus_mode: bool,
 ) -> CanvasShapeObject {
-    let (fill_color, stroke_color) = match delta_kind {
-        NodeDeltaKind::Added => ("#3aa66a", "#1f6642"),
-        NodeDeltaKind::Changed => ("#dc7e35", "#88451b"),
-        NodeDeltaKind::Impact => ("#4f98bf", "#2d6687"),
+    let (fill_color, stroke_color, text_color) = match delta_kind {
+        NodeDeltaKind::Added => ("#3aa66a", "#1f6642", "#ffffff"),
+        NodeDeltaKind::Changed => ("#dc7e35", "#88451b", "#ffffff"),
+        NodeDeltaKind::Impact => ("#4f98bf", "#2d6687", "#ffffff"),
+        NodeDeltaKind::Unchanged if show_focus_mode => ("#d9e2ec", "#b5c4d3", "#536577"),
         NodeDeltaKind::Unchanged => match node.kind {
-            ArchitectureNodeKind::Module => ("#3e7faa", "#22577a"),
-            ArchitectureNodeKind::File => ("#4e9164", "#2f6543"),
+            ArchitectureNodeKind::Module => ("#3e7faa", "#22577a", "#ffffff"),
+            ArchitectureNodeKind::File => ("#4e9164", "#2f6543", "#ffffff"),
         },
     };
 
@@ -355,7 +371,7 @@ fn build_node_shape(
             fill_color: Some(fill_color.to_owned()),
             stroke_color: Some(stroke_color.to_owned()),
             stroke_width_px: Some(2),
-            text_color: Some("#ffffff".to_owned()),
+            text_color: Some(text_color.to_owned()),
         },
     }
 }
@@ -596,6 +612,7 @@ mod tests {
             show_impact_overlay: true,
             before_graph: None,
             show_before_after_overlay: false,
+            show_focus_mode: false,
             tool_cards: &cards,
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -609,6 +626,7 @@ mod tests {
             show_impact_overlay: true,
             before_graph: None,
             show_before_after_overlay: false,
+            show_focus_mode: false,
             tool_cards: &cards,
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -629,6 +647,7 @@ mod tests {
             show_impact_overlay: false,
             before_graph: None,
             show_before_after_overlay: false,
+            show_focus_mode: false,
             tool_cards: &[],
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -704,6 +723,7 @@ mod tests {
             show_impact_overlay: false,
             before_graph: None,
             show_before_after_overlay: false,
+            show_focus_mode: false,
             tool_cards: &[],
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -758,6 +778,7 @@ mod tests {
             show_impact_overlay: false,
             before_graph: None,
             show_before_after_overlay: false,
+            show_focus_mode: false,
             tool_cards: &[],
             turn_in_flight: true,
             canvas_status: "Running turn for: inspect parser",
@@ -816,6 +837,7 @@ mod tests {
             show_impact_overlay: false,
             before_graph: Some(&before),
             show_before_after_overlay: true,
+            show_focus_mode: false,
             tool_cards: &[],
             turn_in_flight: false,
             canvas_status: "Idle",
@@ -840,6 +862,62 @@ mod tests {
             _ => None,
         });
         assert_eq!(added_shape_fill, Some("#3aa66a"));
+    }
+
+    #[test]
+    fn architecture_renderer_focus_mode_dims_unchanged_nodes() {
+        let graph = ArchitectureGraph {
+            nodes: vec![
+                ArchitectureNode {
+                    id: "module:crate".to_owned(),
+                    display_label: "crate".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+                ArchitectureNode {
+                    id: "module:crate::tools".to_owned(),
+                    display_label: "tools".to_owned(),
+                    kind: ArchitectureNodeKind::Module,
+                    path: None,
+                },
+            ],
+            edges: Vec::new(),
+            revision: 3,
+            generated_at: UNIX_EPOCH,
+        };
+
+        let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
+            graph: &graph,
+            changed_target_ids: &["module:crate::tools".to_owned()],
+            impact_target_ids: &[],
+            show_impact_overlay: false,
+            before_graph: None,
+            show_before_after_overlay: false,
+            show_focus_mode: true,
+            tool_cards: &[],
+            turn_in_flight: false,
+            canvas_status: "Idle",
+            recent_activity: &[],
+            sequence: 4,
+        });
+
+        let unchanged_fill = batch.commands.iter().find_map(|command| match command {
+            super::CanvasDrawCommand::UpsertShape { shape } if shape.id == "node:module:crate" => {
+                shape.style.fill_color.as_deref()
+            }
+            _ => None,
+        });
+        let changed_fill = batch.commands.iter().find_map(|command| match command {
+            super::CanvasDrawCommand::UpsertShape { shape }
+                if shape.id == "node:module:crate::tools" =>
+            {
+                shape.style.fill_color.as_deref()
+            }
+            _ => None,
+        });
+
+        assert_eq!(unchanged_fill, Some("#d9e2ec"));
+        assert_eq!(changed_fill, Some("#dc7e35"));
     }
 
     #[test]

@@ -141,7 +141,7 @@ Runtime flow (implemented + planned):
 
 Planned UX milestones for this architecture:
 1. Before/after overlay mode with deterministic color semantics. (implemented for latest turn)
-2. Per-turn focus mode (highlight changed + immediate impact, dim unchanged).
+2. Per-turn focus mode (highlight changed + immediate impact, dim unchanged). (implemented for latest turn)
 3. Timeline/snapshot scrubbing over turn-indexed graph states.
 4. Intent vs outcome mode (planned target set vs changed target set).
 

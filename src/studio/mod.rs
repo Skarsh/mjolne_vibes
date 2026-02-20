@@ -230,6 +230,7 @@ struct CanvasTurnSummary {
 enum CanvasDiffMode {
     Live,
     BeforeAfterLatestTurn,
+    FocusLatestTurn,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -670,10 +671,16 @@ impl StudioApp {
         } else {
             None
         };
-        let effective_changed = overlay_snapshot
+        let focus_snapshot = if self.canvas_diff_mode == CanvasDiffMode::FocusLatestTurn {
+            self.turn_snapshots.last()
+        } else {
+            None
+        };
+        let mode_snapshot = overlay_snapshot.or(focus_snapshot);
+        let effective_changed = mode_snapshot
             .map(|snapshot| snapshot.changed_target_ids.as_slice())
             .unwrap_or(self.graph_surface.changed_target_ids.as_slice());
-        let effective_impact = overlay_snapshot
+        let effective_impact = mode_snapshot
             .map(|snapshot| snapshot.impact_target_ids.as_slice())
             .unwrap_or(self.graph_surface.impact_target_ids.as_slice());
         let recent_activity = self
@@ -694,6 +701,8 @@ impl StudioApp {
             show_impact_overlay: self.graph_surface.impact_overlay_enabled,
             before_graph: overlay_snapshot.and_then(|snapshot| snapshot.baseline_graph.as_ref()),
             show_before_after_overlay: overlay_snapshot.is_some(),
+            show_focus_mode: self.canvas_diff_mode == CanvasDiffMode::FocusLatestTurn
+                && mode_snapshot.is_some(),
             tool_cards: &self.canvas_tool_cards,
             turn_in_flight: self.turn_in_flight,
             canvas_status: &self.canvas_status,
@@ -1000,6 +1009,17 @@ impl StudioApp {
                                     CanvasDiffMode::Live
                                 } else {
                                     CanvasDiffMode::BeforeAfterLatestTurn
+                                };
+                                self.render_architecture_overview_scene();
+                            }
+                            let focus_selected =
+                                self.canvas_diff_mode == CanvasDiffMode::FocusLatestTurn;
+                            let focus_label = if focus_selected { "Focus On" } else { "Focus" };
+                            if ui.selectable_label(focus_selected, focus_label).clicked() {
+                                self.canvas_diff_mode = if focus_selected {
+                                    CanvasDiffMode::Live
+                                } else {
+                                    CanvasDiffMode::FocusLatestTurn
                                 };
                                 self.render_architecture_overview_scene();
                             }
@@ -1555,6 +1575,59 @@ mod tests {
             .into_iter()
             .any(|shape| shape.id == "overlay:before-after-summary");
         assert!(has_overlay_summary);
+
+        graph_watch_handle.shutdown();
+        remove_dir_if_exists(&workspace_root);
+    }
+
+    #[tokio::test]
+    async fn render_architecture_scene_focus_mode_dims_unchanged_nodes() {
+        let workspace_root = create_workspace_root("studio-focus-mode");
+        let settings = studio_test_settings(8);
+        let (command_tx, _command_rx) = unbounded_channel();
+        let (_event_tx, event_rx) = unbounded_channel();
+        let (_graph_update_tx, graph_update_rx) = unbounded_channel();
+        let runtime_handle = Handle::current();
+        let (graph_watch_handle, _graph_watch_rx) =
+            spawn_graph_watch_worker(&runtime_handle, workspace_root.clone());
+        let mut app = StudioApp::new(
+            settings,
+            command_tx,
+            event_rx,
+            graph_update_rx,
+            graph_watch_handle.clone(),
+            workspace_root.clone(),
+        );
+
+        app.canvas.apply(CanvasOp::set_scene_graph(graph_for_test(
+            3,
+            &["module:crate", "module:crate::tools"],
+            &[],
+        )));
+        app.canvas_diff_mode = CanvasDiffMode::FocusLatestTurn;
+        app.turn_snapshots.push(super::CanvasTurnSnapshot {
+            turn_id: 1,
+            started_at: UNIX_EPOCH,
+            completed_at: UNIX_EPOCH,
+            baseline_revision: Some(2),
+            outcome_revision: 3,
+            changed_target_ids: vec!["module:crate::tools".to_owned()],
+            impact_target_ids: Vec::new(),
+            intent_target_ids: Vec::new(),
+            baseline_graph: Some(graph_for_test(2, &["module:crate"], &[])),
+            outcome_graph: graph_for_test(3, &["module:crate", "module:crate::tools"], &[]),
+        });
+
+        app.render_architecture_overview_scene();
+
+        let unchanged = app
+            .canvas
+            .draw_scene()
+            .shapes()
+            .into_iter()
+            .find(|shape| shape.id == "node:module:crate")
+            .and_then(|shape| shape.style.fill_color.as_deref());
+        assert_eq!(unchanged, Some("#d9e2ec"));
 
         graph_watch_handle.shutdown();
         remove_dir_if_exists(&workspace_root);
