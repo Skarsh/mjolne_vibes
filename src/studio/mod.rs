@@ -1139,9 +1139,7 @@ impl StudioApp {
     }
 
     fn selected_snapshot_index(&self) -> Option<usize> {
-        let Some(last_index) = self.turn_snapshots.len().checked_sub(1) else {
-            return None;
-        };
+        let last_index = self.turn_snapshots.len().checked_sub(1)?;
         Some(
             self.selected_snapshot_index
                 .unwrap_or(last_index)
