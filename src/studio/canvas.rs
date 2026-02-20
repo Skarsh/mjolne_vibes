@@ -183,6 +183,7 @@ pub struct GraphRenderOptions<'a> {
     pub changed_node_ids: &'a [String],
     pub impact_node_ids: &'a [String],
     pub show_impact_overlay: bool,
+    pub show_graph_legend: bool,
     pub surface_height: f32,
     pub tool_cards: &'a [CanvasToolCard],
 }
@@ -357,10 +358,13 @@ pub fn render_graph_snapshot(
         }
     }
 
-    render_legend(ui, &painter, frame, viewport.zoom_percent());
+    if options.show_graph_legend {
+        render_legend(ui, &painter, frame, viewport.zoom_percent());
+    }
     render_tool_cards(&painter, frame, options.tool_cards);
 
-    if let Some(hovered_node_id) = hovered_node_id
+    if options.show_graph_legend
+        && let Some(hovered_node_id) = hovered_node_id
         && let Some(node) = graph.nodes.iter().find(|node| node.id == hovered_node_id)
     {
         let kind = match node.kind {

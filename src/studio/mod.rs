@@ -229,10 +229,12 @@ struct StudioApp {
     chat_history: Vec<ChatEntry>,
     canvas: CanvasState,
     canvas_status: String,
-    graph_last_trigger: Option<String>,
     changed_node_ids: Vec<String>,
     impact_node_ids: Vec<String>,
     impact_overlay_enabled: bool,
+    graph_legend_enabled: bool,
+    graph_inspector_enabled: bool,
+    graph_last_trigger: Option<String>,
     active_canvas_surface: CanvasSurfaceKind,
     chat_panel_expanded: bool,
     canvas_viewport: CanvasViewport,
@@ -267,10 +269,12 @@ impl StudioApp {
             )],
             canvas: CanvasState::default(),
             canvas_status: "Idle".to_owned(),
-            graph_last_trigger: None,
             changed_node_ids: Vec::new(),
             impact_node_ids: Vec::new(),
             impact_overlay_enabled: false,
+            graph_legend_enabled: false,
+            graph_inspector_enabled: false,
+            graph_last_trigger: None,
             active_canvas_surface: CanvasSurfaceKind::ArchitectureGraph,
             chat_panel_expanded: true,
             canvas_viewport: CanvasViewport::default(),
@@ -392,33 +396,21 @@ impl StudioApp {
             });
     }
 
-    fn status_style(&self) -> (&'static str, egui::Color32, egui::Color32) {
+    fn session_status(&self) -> (&'static str, egui::Color32) {
         if self.turn_in_flight {
-            (
-                "Running",
-                egui::Color32::from_rgb(189, 128, 37),
-                egui::Color32::from_rgb(243, 219, 167),
-            )
+            ("Running", egui::Color32::from_rgb(189, 128, 37))
         } else if self.runtime_disconnected {
-            (
-                "Disconnected",
-                egui::Color32::from_rgb(186, 66, 66),
-                egui::Color32::from_rgb(249, 222, 222),
-            )
+            ("Disconnected", egui::Color32::from_rgb(186, 66, 66))
         } else {
-            (
-                "Ready",
-                egui::Color32::from_rgb(41, 118, 95),
-                egui::Color32::from_rgb(219, 243, 234),
-            )
+            ("Ready", egui::Color32::from_rgb(41, 118, 95))
         }
     }
 
     fn render_top_bar(&mut self, ui: &mut egui::Ui) {
-        let (status_label, status_text_color, status_fill) = self.status_style();
+        let (status_label, status_color) = self.session_status();
         ui.horizontal(|ui| {
             if ui
-                .button(if self.chat_panel_expanded {
+                .small_button(if self.chat_panel_expanded {
                     "Hide chat"
                 } else {
                     "Show chat"
@@ -427,29 +419,16 @@ impl StudioApp {
             {
                 self.chat_panel_expanded = !self.chat_panel_expanded;
             }
+            ui.separator();
             ui.label(
-                egui::RichText::new("mjolne_vibes studio")
-                    .strong()
-                    .color(studio_text()),
-            );
-            Self::chip(
-                ui,
-                status_label,
-                status_fill,
-                status_text_color.gamma_multiply(0.35),
-                status_text_color,
-            );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(
-                    egui::RichText::new(format!(
-                        "{} / {}",
-                        self.settings.model_provider, self.settings.model
-                    ))
+                egui::RichText::new(status_label)
                     .small()
-                    .monospace()
-                    .color(studio_muted_text()),
-                );
-            });
+                    .strong()
+                    .color(status_color),
+            );
+            if self.turn_in_flight {
+                ui.add(egui::Spinner::new());
+            }
         });
     }
 
@@ -493,9 +472,6 @@ impl StudioApp {
     }
 
     fn apply_graph_update(&mut self, update: GraphRefreshUpdate) {
-        let revision = update.graph.revision;
-        let node_count = update.graph.nodes.len();
-        let edge_count = update.graph.edges.len();
         let trigger = update.trigger.label().to_owned();
         let delta = graph_change_delta(self.canvas.graph(), &update.graph);
         self.changed_node_ids = delta.changed_node_ids;
@@ -503,17 +479,19 @@ impl StudioApp {
         self.canvas.apply(CanvasOp::SetGraph {
             graph: update.graph,
         });
+        self.graph_last_trigger = Some(trigger);
         self.apply_graph_visualization();
-        self.graph_last_trigger = Some(trigger.clone());
         self.canvas_status = if self.changed_node_ids.is_empty() {
-            format!(
-                "Graph refreshed (rev {revision}, {node_count} nodes, {edge_count} edges, trigger: {trigger})"
-            )
+            "Canvas refreshed".to_owned()
         } else {
             format!(
-                "Graph refreshed (rev {revision}, {node_count} nodes, {edge_count} edges, trigger: {trigger}, changed: {}, impact: {})",
+                "Canvas refreshed ({} changed node{})",
                 self.changed_node_ids.len(),
-                self.impact_node_ids.len()
+                if self.changed_node_ids.len() == 1 {
+                    ""
+                } else {
+                    "s"
+                }
             )
         };
     }
@@ -761,6 +739,7 @@ impl StudioApp {
                     changed_node_ids: &self.changed_node_ids,
                     impact_node_ids: &self.impact_node_ids,
                     show_impact_overlay: self.impact_overlay_enabled,
+                    show_graph_legend: self.graph_legend_enabled,
                     surface_height,
                     tool_cards: &self.canvas_tool_cards,
                 },
@@ -769,100 +748,41 @@ impl StudioApp {
     }
 
     fn render_canvas_pane(&mut self, ui: &mut egui::Ui) {
-        let revision = self.canvas.graph().map_or(0, |graph| graph.revision);
+        let revision = self.canvas.graph().map(|graph| graph.revision);
         let node_count = self.canvas.graph().map_or(0, |graph| graph.nodes.len());
         let edge_count = self.canvas.graph().map_or(0, |graph| graph.edges.len());
-        let mut overlay_changed = false;
 
-        ui.horizontal_wrapped(|ui| {
+        ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("Canvas")
                     .heading()
                     .strong()
                     .color(studio_text()),
             );
-            Self::chip(
-                ui,
-                self.active_canvas_surface.label(),
-                egui::Color32::from_rgb(231, 238, 248),
-                egui::Color32::from_rgb(172, 192, 223),
-                egui::Color32::from_rgb(45, 82, 141),
-            );
-            Self::chip(
-                ui,
-                format!("rev {revision}"),
-                egui::Color32::from_rgb(239, 244, 250),
-                studio_border(),
-                studio_muted_text(),
-            );
-            Self::chip(
-                ui,
-                format!("{node_count} nodes / {edge_count} edges"),
-                egui::Color32::from_rgb(239, 244, 250),
-                studio_border(),
-                studio_muted_text(),
-            );
-            Self::chip(
-                ui,
-                format!("changed {}", self.changed_node_ids.len()),
-                egui::Color32::from_rgb(255, 237, 218),
-                egui::Color32::from_rgb(223, 167, 108),
-                egui::Color32::from_rgb(153, 100, 34),
-            );
-            if self.impact_overlay_enabled {
-                Self::chip(
-                    ui,
-                    format!("impact {}", self.impact_node_ids.len()),
-                    egui::Color32::from_rgb(224, 240, 251),
-                    egui::Color32::from_rgb(146, 184, 214),
-                    egui::Color32::from_rgb(43, 97, 140),
-                );
-            }
-            overlay_changed = ui
-                .checkbox(&mut self.impact_overlay_enabled, "Show impact")
-                .changed();
-            if ui.button("−").clicked() {
-                self.canvas_viewport.zoom_out();
-            }
-            if ui
-                .button(format!("{}%", self.canvas_viewport.zoom_percent()))
-                .clicked()
-            {
-                self.canvas_viewport.reset();
-            }
-            if ui.button("+").clicked() {
-                self.canvas_viewport.zoom_in();
-            }
-            if ui.button("Fit").clicked() {
-                self.canvas_viewport.fit_to_view();
-            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button("Fit").clicked() {
+                    self.canvas_viewport.fit_to_view();
+                }
+                if ui.button("+").clicked() {
+                    self.canvas_viewport.zoom_in();
+                }
+                if ui
+                    .button(format!("{}%", self.canvas_viewport.zoom_percent()))
+                    .clicked()
+                {
+                    self.canvas_viewport.reset();
+                }
+                if ui.button("−").clicked() {
+                    self.canvas_viewport.zoom_out();
+                }
+            });
         });
 
-        if let Some(trigger) = &self.graph_last_trigger {
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} · trigger {} · turns {}",
-                    self.canvas_status,
-                    trigger,
-                    self.turn_summaries.len()
-                ))
+        ui.label(
+            egui::RichText::new(self.canvas_status.clone())
                 .small()
                 .color(studio_muted_text()),
-            );
-        } else {
-            ui.label(
-                egui::RichText::new(format!(
-                    "{} · turns {}",
-                    self.canvas_status,
-                    self.turn_summaries.len()
-                ))
-                .small()
-                .color(studio_muted_text()),
-            );
-        }
-        if overlay_changed {
-            self.apply_graph_visualization();
-        }
+        );
 
         let annotation_height = if self.canvas.annotations().is_empty() {
             0.0
@@ -876,28 +796,95 @@ impl StudioApp {
             self.render_canvas_surface(ui, surface_height);
         });
 
-        if self.canvas.annotations().is_empty() {
-            return;
+        if !self.canvas.annotations().is_empty() {
+            Self::card_frame(ui).show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    for annotation in self.canvas.annotations().iter().take(10) {
+                        let text = if let Some(node_id) = &annotation.node_id {
+                            format!("{} ({node_id})", annotation.text)
+                        } else {
+                            annotation.text.clone()
+                        };
+                        Self::chip(
+                            ui,
+                            text,
+                            egui::Color32::from_rgb(240, 245, 251),
+                            studio_border(),
+                            studio_muted_text(),
+                        );
+                    }
+                });
+            });
         }
 
-        Self::card_frame(ui).show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                for annotation in self.canvas.annotations().iter().take(10) {
-                    let text = if let Some(node_id) = &annotation.node_id {
-                        format!("{} ({node_id})", annotation.text)
-                    } else {
-                        annotation.text.clone()
-                    };
+        let mut overlay_changed = false;
+        ui.collapsing("Graph options", |ui| {
+            overlay_changed = ui
+                .checkbox(&mut self.impact_overlay_enabled, "Show impact overlay")
+                .changed();
+            ui.checkbox(&mut self.graph_legend_enabled, "Show graph legend");
+            ui.checkbox(&mut self.graph_inspector_enabled, "Show graph inspector");
+            ui.label(
+                egui::RichText::new(self.active_canvas_surface.label())
+                    .small()
+                    .color(studio_muted_text()),
+            );
+        });
+        if overlay_changed {
+            self.apply_graph_visualization();
+        }
+
+        if self.graph_inspector_enabled {
+            Self::card_frame(ui).show(ui, |ui| {
+                ui.label(
+                    egui::RichText::new("Graph inspector")
+                        .small()
+                        .strong()
+                        .color(studio_text()),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    let revision_text =
+                        revision.map_or_else(|| "n/a".to_owned(), |rev| rev.to_string());
                     Self::chip(
                         ui,
-                        text,
-                        egui::Color32::from_rgb(240, 245, 251),
+                        format!("revision {revision_text}"),
+                        egui::Color32::from_rgb(239, 244, 250),
                         studio_border(),
                         studio_muted_text(),
                     );
-                }
+                    Self::chip(
+                        ui,
+                        format!("{node_count} nodes / {edge_count} edges"),
+                        egui::Color32::from_rgb(239, 244, 250),
+                        studio_border(),
+                        studio_muted_text(),
+                    );
+                    Self::chip(
+                        ui,
+                        format!("changed {}", self.changed_node_ids.len()),
+                        egui::Color32::from_rgb(255, 237, 218),
+                        egui::Color32::from_rgb(223, 167, 108),
+                        egui::Color32::from_rgb(153, 100, 34),
+                    );
+                    Self::chip(
+                        ui,
+                        format!("impact {}", self.impact_node_ids.len()),
+                        egui::Color32::from_rgb(224, 240, 251),
+                        egui::Color32::from_rgb(146, 184, 214),
+                        egui::Color32::from_rgb(43, 97, 140),
+                    );
+                });
+                let trigger = self
+                    .graph_last_trigger
+                    .as_deref()
+                    .unwrap_or("not yet refreshed");
+                ui.label(
+                    egui::RichText::new(format!("Last refresh trigger: {trigger}"))
+                        .small()
+                        .color(studio_muted_text()),
+                );
             });
-        });
+        }
     }
 
     fn render_chat_entry(&self, ui: &mut egui::Ui, entry: &ChatEntry) {
@@ -1045,15 +1032,11 @@ impl eframe::App for StudioApp {
         self.drain_graph_updates();
 
         egui::TopBottomPanel::top("studio_header")
-            .exact_height(42.0)
+            .exact_height(34.0)
             .frame(
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(242, 246, 251))
-                    .stroke(egui::Stroke::new(
-                        1.0,
-                        egui::Color32::from_rgb(199, 212, 229),
-                    ))
-                    .inner_margin(egui::Margin::symmetric(10, 7)),
+                    .fill(egui::Color32::from_rgb(246, 250, 254))
+                    .inner_margin(egui::Margin::symmetric(8, 5)),
             )
             .show(ctx, |ui| self.render_top_bar(ui));
 

@@ -32,7 +32,7 @@ Implemented in-repo:
 src/
   graph/mod.rs     # deterministic Rust file/module graph builder
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
-  studio/mod.rs    # native egui shell; collapsible chat rail + canvas-first stage
+  studio/mod.rs    # native egui shell; collapsible chat rail + generic-first canvas stage
   studio/canvas.rs # canvas state reducer + interactive graph renderer (pan/zoom/tool cards)
   studio/events.rs # typed UI/runtime command and event channels
 ```
@@ -60,13 +60,15 @@ Runtime flow (implemented + planned):
 5. `studio` applies typed `CanvasOp` updates and re-renders canvas without blocking chat.
 6. On each post-startup graph refresh, `studio` diffs old/new graph snapshots to:
    - highlight changed nodes
-   - optionally include 1-hop impact nodes when the canvas overlay toggle is enabled
+   - optionally include 1-hop impact nodes when the graph overlay toggle is enabled
    - publish overlay annotations for changed/impact summaries
 7. `studio/canvas.rs` renders an interactive node/edge graph stage with:
    - pan + scroll-wheel zoom viewport controls
-   - fit/reset controls surfaced in the canvas toolbar
+   - fit/reset controls surfaced in the canvas toolbar (generic default controls)
    - tool-call cards overlaid on-canvas from executed agent tool calls
-8. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceKind` + typed render options so additional non-graph surfaces can be added without changing runtime/tool contracts.
+   - graph-specific legend/hover hints gated behind graph options (opt-in)
+8. `studio/mod.rs` exposes opt-in graph controls and telemetry (impact overlay, legend, inspector) under `Graph options` so default canvas chrome remains generic.
+9. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceKind` + typed render options so additional non-graph surfaces can be added without changing runtime/tool contracts.
 
 Planned failure handling:
 - Canvas or graph refresh failures must not fail chat turns.

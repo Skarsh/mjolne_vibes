@@ -14,7 +14,8 @@ It supports:
 
 - Provider selection via config (`ollama` default, `openai` fallback).
 - Shared agent loop across CLI, eval, and HTTP.
-- `studio` canvas supports pan/zoom/fit controls and overlays recent tool-call cards for agent-driven workflows.
+- `studio` uses a generic-first canvas shell with viewport controls (pan/zoom/fit) and overlays recent tool-call cards for agent-driven workflows.
+- Graph-specific overlays/telemetry (impact, legend, inspector) are opt-in under `Graph options` to keep the default canvas view generic.
 - Strict, typed v1 tools:
   - `search_notes(query: string, limit: u8)`
   - `fetch_url(url: string)`

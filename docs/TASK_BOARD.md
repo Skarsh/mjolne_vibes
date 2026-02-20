@@ -6,18 +6,29 @@ Current execution board for maintenance work.
 
 - `Maintenance / Hardening`
 - `Native Studio Canvas Prototype (v0)`
+- `Studio Canvas Genericization (multi-session track)`
 
 ## Active tasks
 
-- (none)
+- [ ] [SG-05] Refactor canvas rendering boundaries so generic canvas frame/viewport behavior is separated from graph-specific rendering concerns (`src/studio/canvas.rs`).
+- [ ] [SG-06] Introduce a graph surface adapter path (or equivalent split module) so graph rendering is one surface implementation, not the canvas core (`src/studio/mod.rs`, `src/studio/canvas.rs`).
+- [ ] [SG-07] Evolve `CanvasOp`/canvas state toward generic drawing-intent primitives while preserving compatibility with current graph operations during transition (`src/studio/events.rs`, `src/studio/canvas.rs`).
+- [ ] [SG-08] Keep graph watch + diff/highlight logic isolated from generic canvas shell behavior; preserve non-blocking chat turn behavior and failure isolation (`src/graph/watch.rs`, `src/studio/mod.rs`).
+- [ ] [SG-09] Add/adjust reducer and rendering tests for the new generic-vs-graph boundaries and toolbar/inspector behavior (`src/studio/canvas.rs`, `src/studio/mod.rs` tests).
+- [ ] [SG-10] Add integration coverage for studio event flow and non-blocking refresh behavior under active turns (promoted from backlog) (`tests/` and/or `src/studio/*` integration harness).
+- [ ] [SG-11] Update docs to reflect the generic canvas contract and surface adapter model (`docs/ARCHITECTURE.md`, `README.md`).
+- [ ] [SG-12] Final hardening pass: run full quality gates, polish copy/labels to generic canvas language, and move completed SG tasks to history (`docs/TASK_BOARD.md`, `docs/TESTING.md` commands).
 
 ## Backlog candidates
 
-- [ ] Add integration tests for studio event flow and non-blocking refresh behavior.
 - [ ] Add optional cost/usage counters in turn trace output.
 
 ## Recently completed
 
+- [x] [SG-04] Added an opt-in graph inspector card with graph-specific telemetry (revision, node/edge counts, changed/impact counts, refresh trigger) and kept it hidden by default behind graph options (`src/studio/mod.rs`) (2026-02-20).
+- [x] [SG-03] Kept the primary canvas toolbar viewport-only and moved graph-specific visual affordances behind graph options (including opt-in legend/hover hint rendering) (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-20).
+- [x] [SG-02] Minimized studio header chrome to navigation/session essentials (chat toggle + session status), removed top-row model/title metadata, and reduced header visual weight (`src/studio/mod.rs`) (2026-02-20).
+- [x] [SG-01] Baseline canvas cleanup: removed graph-heavy metadata chips from the top canvas row, simplified canvas status copy, and moved impact toggle into collapsed graph options to keep default canvas view generic (`src/studio/mod.rs`) (2026-02-20).
 - [x] Advanced `studio` into an interaction-first canvas shell with collapsible chat rail, pan/zoom/fit controls, and tool-call cards rendered directly on canvas for agent-driven workflows (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-19).
 - [x] Reworked `studio` into a cleaner canvas-first layout with a simplified chat sidebar, dynamic full-height canvas surface rendering, and extensible canvas-surface dispatch for future non-graph views (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-19).
 - [x] Refreshed native `studio` visual design with a lighter branded theme, stronger status/metadata chips, updated chat/canvas card hierarchy, and harmonized graph palette styling (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-19).
