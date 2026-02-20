@@ -18,6 +18,7 @@ Current execution board for maintenance work.
 
 ## Recently completed
 
+- [x] [SG-13] Applied a visual polish pass for native `studio`: refreshed shell palette/spacing hierarchy, upgraded top-bar/chat/canvas control styling, improved metadata chips/composer readability, and enhanced canvas stage rendering (guide grid, lane tinting, legend/tool-card refinement) while preserving runtime behavior (`src/studio/mod.rs`, `src/studio/canvas.rs`, `docs/TASK_BOARD.md`) (2026-02-20).
 - [x] [SG-12] Final hardening pass complete: ran full quality gates (`fmt`, `clippy`, `test`), polished remaining canvas copy to generic surface language, and finalized SG task progression in board history (`src/studio/mod.rs`, `src/studio/canvas.rs`, `README.md`, `docs/ARCHITECTURE.md`, `docs/TASK_BOARD.md`) (2026-02-20).
 - [x] [SG-11] Updated docs to reflect the generic canvas contract, adapter-based surface dispatch model, target-oriented canvas intents, and graph-refresh resilience semantics (`docs/ARCHITECTURE.md`, `README.md`) (2026-02-20).
 - [x] [SG-10] Added studio integration-style coverage for runtime event flow and bounded/non-blocking graph-refresh drain behavior (`runtime_worker_emits_failed_turn_and_turn_completion_graph_refresh`, `drain_graph_updates_processes_bounded_batch_per_frame`) in `src/studio/mod.rs` tests (2026-02-20).

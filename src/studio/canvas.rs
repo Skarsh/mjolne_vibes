@@ -362,20 +362,72 @@ fn render_canvas_surface_frame(
     let desired_size = canvas_desired_size(ui.available_width(), surface_height);
     let (response, painter) = ui.allocate_painter(desired_size, egui::Sense::drag());
     let frame = response.rect.shrink(CANVAS_FRAME_INSET);
-    painter.rect_filled(frame, 10.0, egui::Color32::from_rgb(249, 252, 255));
+    painter.rect_filled(frame, 12.0, egui::Color32::from_rgb(244, 250, 255));
+    painter.rect_filled(
+        frame.shrink(1.0),
+        11.0,
+        egui::Color32::from_rgb(251, 253, 255),
+    );
     painter.rect_stroke(
         frame,
-        10.0,
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(202, 217, 236)),
+        12.0,
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(184, 203, 227)),
         egui::StrokeKind::Outside,
     );
+    let content_rect = canvas_content_rect(frame);
+    paint_canvas_guides(&painter, content_rect, viewport);
     viewport.apply_pointer_input(ui, &response, frame.center());
 
     CanvasSurfaceFrame {
         response,
         painter,
         frame,
-        content_rect: canvas_content_rect(frame),
+        content_rect,
+    }
+}
+
+fn paint_canvas_guides(
+    painter: &egui::Painter,
+    content_rect: egui::Rect,
+    viewport: &CanvasViewport,
+) {
+    let spacing = 72.0 * viewport.zoom_clamped(0.86, 1.3);
+    let mut x = content_rect.left() - viewport.pan.x.rem_euclid(spacing);
+    let mut x_index = 0;
+    while x <= content_rect.right() {
+        let color = if x_index % 3 == 0 {
+            egui::Color32::from_rgba_unmultiplied(151, 176, 205, 54)
+        } else {
+            egui::Color32::from_rgba_unmultiplied(166, 189, 214, 34)
+        };
+        painter.line_segment(
+            [
+                egui::pos2(x, content_rect.top()),
+                egui::pos2(x, content_rect.bottom()),
+            ],
+            egui::Stroke::new(1.0, color),
+        );
+        x += spacing;
+        x_index += 1;
+    }
+
+    let mut y = content_rect.top() - viewport.pan.y.rem_euclid(spacing);
+    let mut y_index = 0;
+    while y <= content_rect.bottom() {
+        let color = if y_index % 3 == 0 {
+            egui::Color32::from_rgba_unmultiplied(151, 176, 205, 54)
+        } else {
+            egui::Color32::from_rgba_unmultiplied(166, 189, 214, 34)
+        };
+        painter.line_segment(
+            [
+                egui::pos2(content_rect.left(), y),
+                egui::pos2(content_rect.right(), y),
+            ],
+            egui::Stroke::new(1.0, color),
+        );
+        y += spacing;
+        y_index += 1;
     }
 }
 
@@ -385,8 +437,8 @@ fn render_graph_snapshot(
     viewport: &mut CanvasViewport,
     options: GraphRenderOptions<'_>,
 ) {
-    const MODULE_NODE_RADIUS: f32 = 7.0;
-    const FILE_NODE_SIZE: egui::Vec2 = egui::vec2(15.0, 9.0);
+    const MODULE_NODE_RADIUS: f32 = 8.0;
+    const FILE_NODE_SIZE: egui::Vec2 = egui::vec2(17.0, 10.0);
     const LABEL_MAX_CHARS: usize = 22;
 
     let surface = render_canvas_surface_frame(ui, viewport, options.surface_height);
@@ -401,6 +453,46 @@ fn render_graph_snapshot(
         );
         return;
     };
+
+    let split_y = surface.content_rect.top() + surface.content_rect.height() * 0.58;
+    let module_lane = egui::Rect::from_min_max(
+        surface.content_rect.left_top(),
+        egui::pos2(
+            surface.content_rect.right(),
+            (split_y - 7.0).max(surface.content_rect.top()),
+        ),
+    );
+    let file_lane = egui::Rect::from_min_max(
+        egui::pos2(
+            surface.content_rect.left(),
+            (split_y + 7.0).min(surface.content_rect.bottom()),
+        ),
+        surface.content_rect.right_bottom(),
+    );
+    surface.painter.rect_filled(
+        module_lane,
+        8.0,
+        egui::Color32::from_rgba_unmultiplied(209, 224, 240, 38),
+    );
+    surface.painter.rect_filled(
+        file_lane,
+        8.0,
+        egui::Color32::from_rgba_unmultiplied(210, 231, 216, 38),
+    );
+    surface.painter.text(
+        module_lane.left_top() + egui::vec2(8.0, 6.0),
+        egui::Align2::LEFT_TOP,
+        "Modules",
+        egui::FontId::proportional(10.0),
+        egui::Color32::from_rgb(70, 98, 126),
+    );
+    surface.painter.text(
+        file_lane.left_top() + egui::vec2(8.0, 6.0),
+        egui::Align2::LEFT_TOP,
+        "Files",
+        egui::FontId::proportional(10.0),
+        egui::Color32::from_rgb(62, 101, 78),
+    );
 
     let positions = compute_node_positions(graph, surface.content_rect)
         .into_iter()
@@ -452,13 +544,13 @@ fn render_graph_snapshot(
         let edge_touches_impact =
             impact.contains(edge.from.as_str()) || impact.contains(edge.to.as_str());
         let stroke = if edge_touches_changed {
-            egui::Stroke::new(1.8, egui::Color32::from_rgb(205, 118, 47))
+            egui::Stroke::new(2.0, egui::Color32::from_rgb(205, 118, 47))
         } else if edge_touches_impact {
-            egui::Stroke::new(1.5, egui::Color32::from_rgb(76, 141, 175))
+            egui::Stroke::new(1.6, egui::Color32::from_rgb(76, 141, 175))
         } else {
             egui::Stroke::new(
-                0.9,
-                egui::Color32::from_rgba_unmultiplied(137, 152, 171, 125),
+                1.0,
+                egui::Color32::from_rgba_unmultiplied(121, 142, 170, 122),
             )
         };
         surface.painter.line_segment([*from, *to], stroke);
@@ -485,17 +577,17 @@ fn render_graph_snapshot(
         } else if is_impact {
             egui::Color32::from_rgb(82, 149, 183)
         } else if is_highlighted {
-            egui::Color32::from_rgb(186, 154, 66)
+            egui::Color32::from_rgb(187, 154, 68)
         } else {
             match node.kind {
-                ArchitectureNodeKind::Module => egui::Color32::from_rgb(89, 134, 152),
-                ArchitectureNodeKind::File => egui::Color32::from_rgb(95, 148, 109),
+                ArchitectureNodeKind::Module => egui::Color32::from_rgb(77, 125, 158),
+                ArchitectureNodeKind::File => egui::Color32::from_rgb(84, 143, 106),
             }
         };
         let stroke = if is_focused || is_hovered {
-            egui::Stroke::new(2.2, egui::Color32::from_rgb(157, 80, 37))
+            egui::Stroke::new(2.2, egui::Color32::from_rgb(155, 77, 36))
         } else {
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(52, 46, 37))
+            egui::Stroke::new(1.1, egui::Color32::from_rgb(47, 62, 80))
         };
         let scaled_node_radius = MODULE_NODE_RADIUS * viewport.zoom_clamped(0.72, 1.8);
         let scaled_file_node_size = FILE_NODE_SIZE * viewport.zoom_clamped(0.72, 1.8);
@@ -523,7 +615,7 @@ fn render_graph_snapshot(
                 egui::Align2::CENTER_TOP,
                 clipped_label(&node.display_label, LABEL_MAX_CHARS),
                 egui::FontId::proportional(11.0 * viewport.zoom_clamped(0.85, 1.35)),
-                ui.visuals().strong_text_color(),
+                egui::Color32::from_rgb(45, 62, 83),
             );
         }
     }
@@ -553,45 +645,52 @@ fn render_graph_snapshot(
 }
 
 fn render_legend(ui: &egui::Ui, painter: &egui::Painter, frame: egui::Rect, zoom_percent: u32) {
-    let origin = frame.right_top() + egui::vec2(-180.0, 12.0);
-    let bg = egui::Rect::from_min_size(origin, egui::vec2(168.0, 76.0));
-    painter.rect_filled(bg, 8.0, egui::Color32::from_rgb(243, 248, 253));
+    let origin = frame.right_top() + egui::vec2(-188.0, 12.0);
+    let bg = egui::Rect::from_min_size(origin, egui::vec2(176.0, 94.0));
+    painter.rect_filled(bg, 10.0, egui::Color32::from_rgb(241, 248, 254));
     painter.rect_stroke(
         bg,
-        8.0,
-        egui::Stroke::new(1.0, egui::Color32::from_rgb(188, 205, 226)),
+        10.0,
+        egui::Stroke::new(1.0, egui::Color32::from_rgb(178, 199, 224)),
         egui::StrokeKind::Outside,
+    );
+    painter.text(
+        egui::pos2(bg.left() + 9.0, bg.top() + 8.0),
+        egui::Align2::LEFT_TOP,
+        "Legend",
+        egui::FontId::proportional(10.4),
+        egui::Color32::from_rgb(55, 77, 102),
     );
 
     let items = [
-        ("Module", egui::Color32::from_rgb(89, 134, 152)),
-        ("File", egui::Color32::from_rgb(95, 148, 109)),
+        ("Module", egui::Color32::from_rgb(77, 125, 158)),
+        ("File", egui::Color32::from_rgb(84, 143, 106)),
         ("Changed", egui::Color32::from_rgb(209, 122, 52)),
         ("Impact", egui::Color32::from_rgb(82, 149, 183)),
     ];
     for (index, (label, color)) in items.iter().enumerate() {
-        let y = bg.top() + 12.0 + (index as f32 * 12.5);
+        let y = bg.top() + 27.0 + (index as f32 * 13.2);
         painter.circle_filled(egui::pos2(bg.left() + 10.0, y), 3.8, *color);
         painter.text(
             egui::pos2(bg.left() + 19.0, y),
             egui::Align2::LEFT_CENTER,
             *label,
-            egui::FontId::proportional(10.0),
+            egui::FontId::proportional(10.2),
             ui.visuals().text_color(),
         );
     }
     painter.text(
-        egui::pos2(bg.left() + 8.0, bg.bottom() - 8.0),
+        egui::pos2(bg.left() + 9.0, bg.bottom() - 8.0),
         egui::Align2::LEFT_BOTTOM,
         format!("{zoom_percent}%  drag + scroll"),
-        egui::FontId::proportional(9.5),
+        egui::FontId::proportional(9.8),
         ui.visuals().weak_text_color(),
     );
 }
 
 fn render_tool_cards(painter: &egui::Painter, frame: egui::Rect, tool_cards: &[CanvasToolCard]) {
-    const CARD_WIDTH: f32 = 240.0;
-    const CARD_HEIGHT: f32 = 52.0;
+    const CARD_WIDTH: f32 = 254.0;
+    const CARD_HEIGHT: f32 = 58.0;
     const CARD_SPACING: f32 = 8.0;
     const MAX_VISIBLE: usize = 5;
 
@@ -601,28 +700,33 @@ fn render_tool_cards(painter: &egui::Painter, frame: egui::Rect, tool_cards: &[C
         let rect = egui::Rect::from_min_size(origin, egui::vec2(CARD_WIDTH, CARD_HEIGHT));
         painter.rect_filled(
             rect,
-            8.0,
-            egui::Color32::from_rgba_unmultiplied(236, 245, 255, 232),
+            9.0,
+            egui::Color32::from_rgba_unmultiplied(233, 245, 255, 236),
         );
         painter.rect_stroke(
             rect,
-            8.0,
-            egui::Stroke::new(1.0, egui::Color32::from_rgb(166, 196, 232)),
+            9.0,
+            egui::Stroke::new(1.0, egui::Color32::from_rgb(156, 189, 226)),
             egui::StrokeKind::Outside,
         );
-        painter.text(
-            rect.left_top() + egui::vec2(10.0, 9.0),
-            egui::Align2::LEFT_TOP,
-            clipped_label(&card.title, 22),
-            egui::FontId::proportional(10.5),
-            egui::Color32::from_rgb(45, 89, 149),
+        painter.rect_filled(
+            egui::Rect::from_min_size(rect.left_top(), egui::vec2(4.0, CARD_HEIGHT)),
+            2.0,
+            egui::Color32::from_rgb(68, 126, 188),
         );
         painter.text(
-            rect.left_top() + egui::vec2(10.0, 24.0),
+            rect.left_top() + egui::vec2(12.0, 8.0),
             egui::Align2::LEFT_TOP,
-            clipped_label(&card.body, 40),
+            format!("Tool · {}", clipped_label(&card.title, 18)),
+            egui::FontId::proportional(10.8),
+            egui::Color32::from_rgb(43, 89, 144),
+        );
+        painter.text(
+            rect.left_top() + egui::vec2(12.0, 26.0),
+            egui::Align2::LEFT_TOP,
+            clipped_label(&card.body, 44),
             egui::FontId::proportional(10.0),
-            egui::Color32::from_rgb(53, 68, 92),
+            egui::Color32::from_rgb(54, 71, 95),
         );
     }
 }

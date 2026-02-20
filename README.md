@@ -15,6 +15,7 @@ It supports:
 - Provider selection via config (`ollama` default, `openai` fallback).
 - Shared agent loop across CLI, eval, and HTTP.
 - `studio` uses a generic-first canvas shell with viewport controls (pan/zoom/fit), surface-adapter dispatch (`CanvasSurfaceAdapter`), and overlays recent tool-call cards for agent-driven workflows.
+- `studio` shell visuals are tuned for readability: stronger status/metadata hierarchy in chat/canvas panes plus guide-grid and lane cues in the canvas stage.
 - Canvas update intents are target-oriented (`SetSceneData`, `SetHighlightedTargets`, `SetFocusedTarget`, `UpsertAnnotation`) with legacy graph-op aliases kept during transition.
 - Graph-specific overlays/telemetry (impact, legend, inspector) are opt-in under `Surface options` to keep the default canvas view generic.
 - Graph refresh handling stays failure-isolated: refresh failures retry in the background, and UI drains graph updates in bounded batches per frame to preserve chat responsiveness.
