@@ -1,5 +1,7 @@
 use std::time::SystemTime;
 
+use serde::{Deserialize, Serialize};
+
 use crate::agent::{ChatTurnOutcome, ExecutedToolCall, TurnTraceSummary};
 use crate::graph::ArchitectureGraph;
 
@@ -48,6 +50,88 @@ impl From<ChatTurnOutcome> for StudioTurnResult {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CanvasSceneData {
     ArchitectureGraph { graph: ArchitectureGraph },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanvasPoint {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanvasStyle {
+    pub fill_color: Option<String>,
+    pub stroke_color: Option<String>,
+    pub stroke_width_px: Option<u16>,
+    pub text_color: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CanvasShapeKind {
+    Rectangle,
+    Ellipse,
+    Line,
+    Path,
+    Text,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanvasShapeObject {
+    pub id: String,
+    pub layer: u16,
+    pub kind: CanvasShapeKind,
+    pub points: Vec<CanvasPoint>,
+    pub text: Option<String>,
+    pub style: CanvasStyle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanvasConnectorObject {
+    pub id: String,
+    pub from_id: String,
+    pub to_id: String,
+    pub label: Option<String>,
+    pub style: CanvasStyle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanvasGroupObject {
+    pub id: String,
+    pub layer: u16,
+    pub label: Option<String>,
+    pub object_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanvasViewportHint {
+    pub center: Option<CanvasPoint>,
+    pub zoom_percent: Option<u16>,
+    pub fit_to_object_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CanvasDrawCommand {
+    UpsertShape { shape: CanvasShapeObject },
+    UpsertConnector { connector: CanvasConnectorObject },
+    UpsertGroup { group: CanvasGroupObject },
+    DeleteObject { id: String },
+    ClearScene,
+    SetViewportHint { hint: CanvasViewportHint },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CanvasDrawCommandBatch {
+    pub sequence: u64,
+    pub commands: Vec<CanvasDrawCommand>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -118,8 +202,9 @@ mod tests {
 
     use crate::agent::{ChatTurnOutcome, TurnTraceSummary};
     use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
+    use serde_json::json;
 
-    use super::{CanvasOp, CanvasSceneData, StudioTurnResult};
+    use super::{CanvasDrawCommandBatch, CanvasOp, CanvasSceneData, StudioTurnResult};
 
     #[test]
     fn studio_turn_result_preserves_chat_turn_payload() {
@@ -270,6 +355,71 @@ mod tests {
             }
             _ => panic!("expected legacy add annotation op"),
         }
+    }
+
+    #[test]
+    fn draw_command_batch_deserializes_with_typed_payloads() {
+        let payload = json!({
+            "sequence": 12,
+            "commands": [
+                {
+                    "op": "upsert_shape",
+                    "shape": {
+                        "id": "module-card",
+                        "layer": 1,
+                        "kind": "rectangle",
+                        "points": [{ "x": 10, "y": 16 }, { "x": 180, "y": 84 }],
+                        "text": "module:crate::tools",
+                        "style": {
+                            "fill_color": "#eef5ff",
+                            "stroke_color": "#3f6eb3",
+                            "stroke_width_px": 2,
+                            "text_color": "#1a2d4f"
+                        }
+                    }
+                },
+                { "op": "clear_scene" }
+            ]
+        });
+
+        let batch: CanvasDrawCommandBatch =
+            serde_json::from_value(payload).expect("valid draw command batch");
+        assert_eq!(batch.sequence, 12);
+        assert_eq!(batch.commands.len(), 2);
+    }
+
+    #[test]
+    fn draw_command_batch_rejects_unknown_fields() {
+        let with_unknown_top_level = json!({
+            "sequence": 1,
+            "commands": [],
+            "unexpected": true
+        });
+        assert!(serde_json::from_value::<CanvasDrawCommandBatch>(with_unknown_top_level).is_err());
+
+        let with_unknown_nested_field = json!({
+            "sequence": 2,
+            "commands": [{
+                "op": "upsert_shape",
+                "shape": {
+                    "id": "node-1",
+                    "layer": 1,
+                    "kind": "rectangle",
+                    "points": [{ "x": 0, "y": 0 }],
+                    "text": null,
+                    "style": {
+                        "fill_color": null,
+                        "stroke_color": "#000000",
+                        "stroke_width_px": 1,
+                        "text_color": null,
+                        "shadow": "invalid"
+                    }
+                }
+            }]
+        });
+        assert!(
+            serde_json::from_value::<CanvasDrawCommandBatch>(with_unknown_nested_field).is_err()
+        );
     }
 
     fn graph_with_nodes(revision: u64, node_ids: &[&str]) -> ArchitectureGraph {

@@ -69,6 +69,10 @@ Planned draw-command contract direction:
   - `UpsertGroup` (hierarchy/layer placement)
   - `UpsertAnnotation` (reused for callouts/status chips)
   - `DeleteObject` / `ClearScene` / `SetViewportHint`
+- Contract is defined in `src/studio/events.rs` via:
+  - `CanvasDrawCommandBatch`
+  - `CanvasDrawCommand`
+  - `CanvasShapeObject` / `CanvasConnectorObject` / `CanvasGroupObject` / `CanvasViewportHint`
 - Contract requirements:
   - typed payloads only
   - unknown-field rejection
