@@ -6,6 +6,12 @@ use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
 use super::events::CanvasOp;
 
+const MIN_CANVAS_SURFACE_WIDTH: f32 = 320.0;
+const MIN_CANVAS_SURFACE_HEIGHT: f32 = 240.0;
+const CANVAS_FRAME_INSET: f32 = 8.0;
+const CANVAS_CONTENT_INSET_X: f32 = 24.0;
+const CANVAS_CONTENT_INSET_Y: f32 = 24.0;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CanvasAnnotation {
     pub id: String,
@@ -158,6 +164,34 @@ impl CanvasViewport {
         self.reset();
     }
 
+    fn apply_pointer_input(
+        &mut self,
+        ui: &egui::Ui,
+        response: &egui::Response,
+        frame_center: egui::Pos2,
+    ) {
+        if response.dragged() {
+            self.pan += ui.input(|input| input.pointer.delta());
+        }
+
+        if response.hovered() {
+            let scroll_delta = ui.input(|input| input.raw_scroll_delta.y);
+            if scroll_delta.abs() > f32::EPSILON {
+                let factor = (scroll_delta / 280.0).exp();
+                let anchor = response.hover_pos().unwrap_or(frame_center);
+                self.zoom_with_anchor(anchor, frame_center, factor);
+            }
+        }
+    }
+
+    fn transformed_position(&self, position: egui::Pos2, canvas_center: egui::Pos2) -> egui::Pos2 {
+        canvas_center + ((position - canvas_center) * self.zoom) + self.pan
+    }
+
+    fn zoom_clamped(&self, min: f32, max: f32) -> f32 {
+        self.zoom.clamp(min, max)
+    }
+
     fn zoom_with_anchor(&mut self, anchor: egui::Pos2, canvas_center: egui::Pos2, factor: f32) {
         let previous_zoom = self.zoom;
         let next_zoom = (previous_zoom * factor).clamp(Self::MIN_ZOOM, Self::MAX_ZOOM);
@@ -188,23 +222,32 @@ pub struct GraphRenderOptions<'a> {
     pub tool_cards: &'a [CanvasToolCard],
 }
 
-pub fn render_graph_snapshot(
-    ui: &mut egui::Ui,
-    state: &CanvasState,
-    viewport: &mut CanvasViewport,
-    options: GraphRenderOptions<'_>,
-) {
-    const MIN_GRAPH_VIEW_HEIGHT: f32 = 240.0;
-    const MODULE_NODE_RADIUS: f32 = 7.0;
-    const FILE_NODE_SIZE: egui::Vec2 = egui::vec2(15.0, 9.0);
-    const LABEL_MAX_CHARS: usize = 22;
+struct CanvasSurfaceFrame {
+    response: egui::Response,
+    painter: egui::Painter,
+    frame: egui::Rect,
+    content_rect: egui::Rect,
+}
 
-    let desired_size = egui::vec2(
-        ui.available_width().max(320.0),
-        options.surface_height.max(MIN_GRAPH_VIEW_HEIGHT),
-    );
+fn canvas_desired_size(available_width: f32, surface_height: f32) -> egui::Vec2 {
+    egui::vec2(
+        available_width.max(MIN_CANVAS_SURFACE_WIDTH),
+        surface_height.max(MIN_CANVAS_SURFACE_HEIGHT),
+    )
+}
+
+fn canvas_content_rect(frame: egui::Rect) -> egui::Rect {
+    frame.shrink2(egui::vec2(CANVAS_CONTENT_INSET_X, CANVAS_CONTENT_INSET_Y))
+}
+
+fn render_canvas_surface_frame(
+    ui: &mut egui::Ui,
+    viewport: &mut CanvasViewport,
+    surface_height: f32,
+) -> CanvasSurfaceFrame {
+    let desired_size = canvas_desired_size(ui.available_width(), surface_height);
     let (response, painter) = ui.allocate_painter(desired_size, egui::Sense::drag());
-    let frame = response.rect.shrink(8.0);
+    let frame = response.rect.shrink(CANVAS_FRAME_INSET);
     painter.rect_filled(frame, 10.0, egui::Color32::from_rgb(249, 252, 255));
     painter.rect_stroke(
         frame,
@@ -212,23 +255,31 @@ pub fn render_graph_snapshot(
         egui::Stroke::new(1.0, egui::Color32::from_rgb(202, 217, 236)),
         egui::StrokeKind::Outside,
     );
+    viewport.apply_pointer_input(ui, &response, frame.center());
 
-    if response.dragged() {
-        viewport.pan += ui.input(|input| input.pointer.delta());
+    CanvasSurfaceFrame {
+        response,
+        painter,
+        frame,
+        content_rect: canvas_content_rect(frame),
     }
+}
 
-    if response.hovered() {
-        let scroll_delta = ui.input(|input| input.raw_scroll_delta.y);
-        if scroll_delta.abs() > f32::EPSILON {
-            let factor = (scroll_delta / 280.0).exp();
-            let anchor = response.hover_pos().unwrap_or(frame.center());
-            viewport.zoom_with_anchor(anchor, frame.center(), factor);
-        }
-    }
+pub fn render_graph_snapshot(
+    ui: &mut egui::Ui,
+    state: &CanvasState,
+    viewport: &mut CanvasViewport,
+    options: GraphRenderOptions<'_>,
+) {
+    const MODULE_NODE_RADIUS: f32 = 7.0;
+    const FILE_NODE_SIZE: egui::Vec2 = egui::vec2(15.0, 9.0);
+    const LABEL_MAX_CHARS: usize = 22;
+
+    let surface = render_canvas_surface_frame(ui, viewport, options.surface_height);
 
     let Some(graph) = state.graph() else {
-        painter.text(
-            frame.center(),
+        surface.painter.text(
+            surface.frame.center(),
             egui::Align2::CENTER_CENTER,
             "Graph preview pending initial refresh",
             egui::FontId::proportional(13.0),
@@ -237,13 +288,12 @@ pub fn render_graph_snapshot(
         return;
     };
 
-    let graph_rect = frame.shrink2(egui::vec2(24.0, 24.0));
-    let positions = compute_node_positions(graph, graph_rect)
+    let positions = compute_node_positions(graph, surface.content_rect)
         .into_iter()
         .map(|(id, pos)| {
             (
                 id,
-                transform_position(pos, frame.center(), viewport.zoom, viewport.pan),
+                viewport.transformed_position(pos, surface.frame.center()),
             )
         })
         .collect::<BTreeMap<_, _>>();
@@ -266,12 +316,12 @@ pub fn render_graph_snapshot(
         .iter()
         .map(String::as_str)
         .collect::<BTreeSet<_>>();
-    let hovered_node_id = response.hover_pos().and_then(|pointer_pos| {
+    let hovered_node_id = surface.response.hover_pos().and_then(|pointer_pos| {
         positions
             .iter()
             .find(|(_, pos)| {
                 pointer_pos.distance(**pos)
-                    <= (MODULE_NODE_RADIUS + 4.0) * viewport.zoom.clamp(0.8, 1.7)
+                    <= (MODULE_NODE_RADIUS + 4.0) * viewport.zoom_clamped(0.8, 1.7)
             })
             .map(|(id, _)| id.clone())
     });
@@ -297,7 +347,7 @@ pub fn render_graph_snapshot(
                 egui::Color32::from_rgba_unmultiplied(137, 152, 171, 125),
             )
         };
-        painter.line_segment([*from, *to], stroke);
+        surface.painter.line_segment([*from, *to], stroke);
     }
 
     let draw_all_labels = graph.nodes.len() <= 24;
@@ -333,35 +383,41 @@ pub fn render_graph_snapshot(
         } else {
             egui::Stroke::new(1.0, egui::Color32::from_rgb(52, 46, 37))
         };
-        let scaled_node_radius = MODULE_NODE_RADIUS * viewport.zoom.clamp(0.72, 1.8);
-        let scaled_file_node_size = FILE_NODE_SIZE * viewport.zoom.clamp(0.72, 1.8);
+        let scaled_node_radius = MODULE_NODE_RADIUS * viewport.zoom_clamped(0.72, 1.8);
+        let scaled_file_node_size = FILE_NODE_SIZE * viewport.zoom_clamped(0.72, 1.8);
         match node.kind {
             ArchitectureNodeKind::Module => {
-                painter.circle_filled(*position, scaled_node_radius, fill);
-                painter.circle_stroke(*position, scaled_node_radius, stroke);
+                surface
+                    .painter
+                    .circle_filled(*position, scaled_node_radius, fill);
+                surface
+                    .painter
+                    .circle_stroke(*position, scaled_node_radius, stroke);
             }
             ArchitectureNodeKind::File => {
                 let rect = egui::Rect::from_center_size(*position, scaled_file_node_size);
-                painter.rect_filled(rect, 4.0, fill);
-                painter.rect_stroke(rect, 4.0, stroke, egui::StrokeKind::Outside);
+                surface.painter.rect_filled(rect, 4.0, fill);
+                surface
+                    .painter
+                    .rect_stroke(rect, 4.0, stroke, egui::StrokeKind::Outside);
             }
         }
 
         if draw_all_labels || is_changed || is_impact || is_focused || is_hovered {
-            painter.text(
+            surface.painter.text(
                 *position + egui::vec2(0.0, scaled_node_radius + 5.0),
                 egui::Align2::CENTER_TOP,
                 clipped_label(&node.display_label, LABEL_MAX_CHARS),
-                egui::FontId::proportional(11.0 * viewport.zoom.clamp(0.85, 1.35)),
+                egui::FontId::proportional(11.0 * viewport.zoom_clamped(0.85, 1.35)),
                 ui.visuals().strong_text_color(),
             );
         }
     }
 
     if options.show_graph_legend {
-        render_legend(ui, &painter, frame, viewport.zoom_percent());
+        render_legend(ui, &surface.painter, surface.frame, viewport.zoom_percent());
     }
-    render_tool_cards(&painter, frame, options.tool_cards);
+    render_tool_cards(&surface.painter, surface.frame, options.tool_cards);
 
     if options.show_graph_legend
         && let Some(hovered_node_id) = hovered_node_id
@@ -372,8 +428,8 @@ pub fn render_graph_snapshot(
             ArchitectureNodeKind::File => "file",
         };
         let hint = format!("{kind}: {}", node.display_label);
-        painter.text(
-            frame.left_top() + egui::vec2(16.0, 16.0),
+        surface.painter.text(
+            surface.frame.left_top() + egui::vec2(16.0, 16.0),
             egui::Align2::LEFT_TOP,
             clipped_label(&hint, 48),
             egui::FontId::proportional(11.0),
@@ -455,15 +511,6 @@ fn render_tool_cards(painter: &egui::Painter, frame: egui::Rect, tool_cards: &[C
             egui::Color32::from_rgb(53, 68, 92),
         );
     }
-}
-
-fn transform_position(
-    position: egui::Pos2,
-    center: egui::Pos2,
-    zoom: f32,
-    pan: egui::Vec2,
-) -> egui::Pos2 {
-    center + ((position - center) * zoom) + pan
 }
 
 fn compute_node_positions(
@@ -569,7 +616,10 @@ mod tests {
         ArchitectureNodeKind,
     };
 
-    use super::{CanvasOp, CanvasState, clipped_label, compute_node_positions};
+    use super::{
+        CanvasOp, CanvasState, canvas_content_rect, canvas_desired_size, clipped_label,
+        compute_node_positions,
+    };
 
     #[test]
     fn set_graph_replaces_snapshot_and_prunes_missing_node_references() {
@@ -745,6 +795,24 @@ mod tests {
     fn clipped_label_truncates_long_labels() {
         let label = clipped_label("crate::very::long::module::name", 12);
         assert_eq!(label, "crate::ve...");
+    }
+
+    #[test]
+    fn canvas_desired_size_enforces_minimums() {
+        let clamped = canvas_desired_size(120.0, 180.0);
+        assert_eq!(clamped, egui::vec2(320.0, 240.0));
+
+        let passthrough = canvas_desired_size(640.0, 420.0);
+        assert_eq!(passthrough, egui::vec2(640.0, 420.0));
+    }
+
+    #[test]
+    fn canvas_content_rect_applies_standard_padding() {
+        let frame = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(200.0, 120.0));
+        let content = canvas_content_rect(frame);
+
+        assert_eq!(content.min, egui::pos2(34.0, 44.0));
+        assert_eq!(content.max, egui::pos2(186.0, 116.0));
     }
 
     fn graph_with_nodes(revision: u64, node_ids: &[&str]) -> ArchitectureGraph {

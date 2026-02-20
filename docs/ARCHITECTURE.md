@@ -20,7 +20,7 @@ src/
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   server/mod.rs    # HTTP transport; delegates to agent loop
   studio/mod.rs    # native egui shell; chat pane + canvas pane
-  studio/canvas.rs # canvas state reducer for typed canvas operations
+  studio/canvas.rs # canvas state reducer + generic canvas frame/viewport primitives + graph surface renderer
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
@@ -33,7 +33,7 @@ src/
   graph/mod.rs     # deterministic Rust file/module graph builder
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   studio/mod.rs    # native egui shell; collapsible chat rail + generic-first canvas stage
-  studio/canvas.rs # canvas state reducer + interactive graph renderer (pan/zoom/tool cards)
+  studio/canvas.rs # canvas reducer + generic canvas surface shell (frame/viewport) + graph renderer
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
@@ -62,7 +62,7 @@ Runtime flow (implemented + planned):
    - highlight changed nodes
    - optionally include 1-hop impact nodes when the graph overlay toggle is enabled
    - publish overlay annotations for changed/impact summaries
-7. `studio/canvas.rs` renders an interactive node/edge graph stage with:
+7. `studio/canvas.rs` provides generic canvas surface behavior (shared frame sizing, content insets, viewport drag/zoom input), and the graph surface renderer layers on top with:
    - pan + scroll-wheel zoom viewport controls
    - fit/reset controls surfaced in the canvas toolbar (generic default controls)
    - tool-call cards overlaid on-canvas from executed agent tool calls
