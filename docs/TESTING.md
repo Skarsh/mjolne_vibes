@@ -21,6 +21,7 @@ Integration/behavior coverage should include:
 - timeout/retry behavior
 - `chat --json` structure
 - HTTP `POST /chat` parity with CLI safety/limits
+- studio draw-command reducer invariants and renderer translation tests (for active canvas work)
 
 ## Eval harness
 

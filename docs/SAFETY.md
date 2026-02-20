@@ -42,6 +42,7 @@ Safety policy for runtime behavior.
 - Reject unknown fields in tool args.
 - Return explicit machine-readable errors for policy/validation failures.
 - HTTP `POST /chat` accepts only `{"message": string}` and rejects unknown fields.
+- Studio canvas command/event payloads should remain typed with unknown-field rejection once draw-command contracts are expanded.
 
 ## Transport parity
 

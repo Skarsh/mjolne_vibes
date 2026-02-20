@@ -20,7 +20,7 @@ src/
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   server/mod.rs    # HTTP transport; delegates to agent loop
   studio/mod.rs    # native egui shell; chat pane + canvas pane
-  studio/canvas.rs # canvas state reducer + generic canvas frame/viewport primitives + graph surface renderer
+  studio/canvas.rs # canvas state reducer + generic canvas frame/viewport primitives + draw-command rendering
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
@@ -33,7 +33,7 @@ src/
   graph/mod.rs     # deterministic Rust file/module graph builder
   graph/watch.rs   # debounced graph refresh worker + turn-completion trigger handling
   studio/mod.rs    # native egui shell; collapsible chat rail + generic-first canvas stage
-  studio/canvas.rs # canvas reducer + generic canvas surface shell (frame/viewport) + graph renderer
+  studio/canvas.rs # canvas reducer + generic canvas surface shell (frame/viewport) + draw-command rendering
   studio/events.rs # typed UI/runtime command and event channels
 ```
 
@@ -60,6 +60,29 @@ Canvas surface adapter contract:
 - `CanvasSurfaceAdapter::ArchitectureGraph { GraphSurfaceAdapterOptions }`
 - `CanvasSurfaceAdapter::render(...)` is the surface dispatch point used by `studio/mod.rs`.
 
+Planned draw-command contract direction:
+- Canvas core owns a renderer-agnostic scene model and typed draw mutations.
+- Renderer modules translate domain models into draw commands (canvas core does not interpret domain-specific semantics).
+- Initial draw primitives/mutations:
+  - `UpsertShape` (rect/ellipse/line/path/text with style)
+  - `UpsertConnector` (typed endpoints and stroke style)
+  - `UpsertGroup` (hierarchy/layer placement)
+  - `UpsertAnnotation` (reused for callouts/status chips)
+  - `DeleteObject` / `ClearScene` / `SetViewportHint`
+- Contract requirements:
+  - typed payloads only
+  - unknown-field rejection
+  - deterministic render order and stable object ids
+  - bounded command batch size per frame to protect UI responsiveness
+
+Renderer pipeline direction:
+- `ArchitectureOverviewRenderer` becomes a first-class adapter translating:
+  - graph snapshots
+  - graph deltas
+  - agent turn/tool activity context
+  into generic draw commands.
+- Future renderers (timeline, task map, note clusters) should plug into the same pipeline.
+
 Runtime flow (implemented + planned):
 1. User sends chat input from `studio`.
 2. Shared agent loop (`agent/mod.rs`) executes turn and returns text outcome.
@@ -74,13 +97,13 @@ Runtime flow (implemented + planned):
    - highlight changed nodes
    - optionally include 1-hop impact nodes when the graph overlay toggle is enabled
    - publish overlay annotations for changed/impact summaries
-8. `studio/canvas.rs` provides generic canvas surface behavior (shared frame sizing, content insets, viewport drag/zoom input), and the graph surface renderer layers on top with:
+8. `studio/canvas.rs` provides generic canvas surface behavior (shared frame sizing, content insets, viewport drag/zoom input), and renderer adapters layer draw-command output on top with:
    - pan + scroll-wheel zoom viewport controls
    - fit/reset controls surfaced in the canvas toolbar (generic default controls)
    - tool-call cards overlaid on-canvas from executed agent tool calls
    - graph-specific legend/hover hints gated behind graph options (opt-in)
-9. `studio/mod.rs` exposes opt-in graph controls and telemetry (impact overlay, legend, inspector) under `Surface options` so default canvas chrome remains generic.
-10. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceAdapter`/`CanvasSurfaceAdapterKind` so additional non-graph surfaces can be added without changing runtime/tool contracts.
+9. `studio/mod.rs` exposes renderer-specific controls (for example graph impact/legend/inspector) under `Surface options` so default canvas chrome remains generic.
+10. `studio/mod.rs` dispatches canvas rendering through `CanvasSurfaceAdapter`/`CanvasSurfaceAdapterKind` so additional renderer modules can be added without changing runtime/tool contracts.
 
 Planned failure handling:
 - Canvas or graph refresh failures must not fail chat turns.

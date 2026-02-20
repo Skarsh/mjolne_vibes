@@ -77,6 +77,7 @@ cargo run -- studio
 When running, it auto-refreshes workspace graph stats after chat-turn completion and debounced Rust file changes.
 The UI is canvas-first with a collapsible chat rail, canvas pan/zoom/fit controls, and tool-call cards rendered directly on the canvas stage.
 Current studio visuals emphasize clearer hierarchy in the shell (status/metadata chips, composer controls) and canvas readability (subtle guide grid + module/file lane tinting).
+Roadmap direction is a full draw-command canvas platform: renderer modules will translate domain state (starting with architecture + agent-work context) into generic draw commands consumed by the canvas core.
 
 HTTP endpoints:
 - `GET /health`

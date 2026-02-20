@@ -6,7 +6,7 @@ Execution roadmap for the current codebase.
 
 - v1 scope is complete.
 - Active phase: `Maintenance / Hardening`.
-- Approved prototype direction (user-directed): native `studio` UI with optional canvas-driven architecture visualization.
+- Approved prototype direction (user-directed): native `studio` UI evolving into a generic draw-command canvas platform.
 
 ## v1 scope (implemented)
 
@@ -23,13 +23,32 @@ Execution roadmap for the current codebase.
 2. Preserve transport parity (CLI/eval/HTTP).
 3. Improve reliability/observability without expanding v1 scope by default.
 
-## Approved prototype track: Native `studio` + canvas (v0)
+## Approved prototype track: Native `studio` + draw-command canvas platform
 
 Goals:
 - Add a native desktop `studio` command with chat + canvas panes.
-- Support file/module-level architecture visualization for Rust workspaces.
-- Auto-refresh visualization on file changes and at chat-turn completion.
+- Establish a complete generic canvas command model (scene + draw ops) decoupled from graph-specific state.
+- Support higher-level renderers that compile domain state into generic draw commands.
+- Deliver architecture/workflow renderer first so users can understand agent changes and implementation flow faster than raw diffs.
+- Auto-refresh renderer outputs on file changes and at chat-turn completion.
 - Allow the agent runtime to emit typed canvas update intents alongside text.
+
+Execution plan:
+1. Define stable draw-command contract:
+   - Introduce typed scene primitives and mutations (create/update/delete/order/style/annotation).
+   - Keep unknown-field rejection and deterministic ordering guarantees.
+2. Build canvas command runtime in `studio`:
+   - Extend reducer/state to apply generic draw commands directly.
+   - Keep viewport/input/render loop independent from any specific renderer.
+3. Add renderer pipeline:
+   - Add architecture overview renderer that translates graph + change events into draw commands.
+   - Preserve graph refresh isolation and bounded per-frame update draining.
+4. Surface agent-work context:
+   - Project turn/tool activity into canvas annotations/cards/lanes as draw commands.
+   - Keep this as renderer output, not special-cased canvas-core logic.
+5. Hardening:
+   - Add reducer invariants, renderer translation tests, and studio integration tests for event flow.
+   - Keep CLI/eval/HTTP behavior stable and safety policies unchanged.
 
 Constraints:
 - Keep v1 tool contracts unchanged unless explicitly requested:
