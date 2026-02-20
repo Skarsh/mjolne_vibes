@@ -4,6 +4,8 @@ This file archives the previously inlined `Recently completed` section from `doc
 
 ## Archived completed items
 
+- [x] [DC-06] Refined renderer-driven architecture UX for “understand agent work” by emitting lane labels, in-flight status annotation, and recent completed-turn summaries as generic draw commands (`src/studio/renderer.rs`, `src/studio/mod.rs`) with focused renderer tests (2026-02-20).
+- [x] [DC-05] Expanded test coverage across reducer/renderer flow and bounded graph-update draining by asserting draw-command scene sequencing in `studio::tests::drain_graph_updates_processes_bounded_batch_per_frame`, in addition to existing draw-command reducer invariants and renderer translation tests (`src/studio/mod.rs`, `src/studio/canvas.rs`, `src/studio/renderer.rs`) (2026-02-20).
 - [x] [DC-04] Routed studio graph-refresh and canvas-surface flow through the renderer pipeline: refresh/overlay/tool-card changes now regenerate `ArchitectureOverviewRenderer` draw-command batches and `CanvasSurfaceAdapter` renders the generic draw scene (`src/studio/mod.rs`, `src/studio/canvas.rs`) (2026-02-20).
 - [x] [DC-03] Added `ArchitectureOverviewRenderer` (`src/studio/renderer.rs`) to translate architecture graph + change/impact context + recent tool-card context into deterministic `CanvasDrawCommandBatch` output, with focused renderer translation tests (2026-02-20).
 - [x] [DC-02] Extended `CanvasState` reducer to apply typed draw-command batches (`CanvasOp::ApplyDrawCommandBatch`) with stable-id upsert/delete behavior, stale-sequence protection, deterministic object ordering, and focused reducer tests in `src/studio/canvas.rs` (2026-02-20).

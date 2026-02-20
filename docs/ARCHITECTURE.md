@@ -91,6 +91,7 @@ Renderer pipeline direction:
   - graph deltas
   - agent turn/tool activity context
   into generic draw commands.
+  - current output includes lane labels, in-flight status annotation, and recent completed-turn summaries as draw-scene text shapes for workflow visibility.
 - Future renderers (timeline, task map, note clusters) should plug into the same pipeline.
 
 Runtime flow (implemented + planned):

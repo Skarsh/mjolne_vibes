@@ -14,7 +14,16 @@ pub struct ArchitectureOverviewRenderInput<'a> {
     pub impact_target_ids: &'a [String],
     pub show_impact_overlay: bool,
     pub tool_cards: &'a [CanvasToolCard],
+    pub turn_in_flight: bool,
+    pub canvas_status: &'a str,
+    pub recent_activity: &'a [ArchitectureActivitySummary<'a>],
     pub sequence: u64,
+}
+
+pub struct ArchitectureActivitySummary<'a> {
+    pub user_message: &'a str,
+    pub assistant_preview: &'a str,
+    pub tool_call_count: u32,
 }
 
 pub struct ArchitectureOverviewRenderer;
@@ -56,6 +65,22 @@ impl ArchitectureOverviewRenderer {
         let mut file_shape_ids = Vec::new();
         let mut fit_ids = Vec::new();
 
+        commands.push(CanvasDrawCommand::UpsertShape {
+            shape: CanvasShapeObject {
+                id: "lane:modules-label".to_owned(),
+                layer: 5,
+                kind: CanvasShapeKind::Text,
+                points: vec![CanvasPoint { x: 80, y: 72 }],
+                text: Some("Modules lane".to_owned()),
+                style: CanvasStyle {
+                    fill_color: None,
+                    stroke_color: None,
+                    stroke_width_px: None,
+                    text_color: Some("#355a7e".to_owned()),
+                },
+            },
+        });
+
         let module_columns = 4_usize;
         let module_row_height = 140_i32;
         for (index, node) in module_nodes.iter().enumerate() {
@@ -68,6 +93,24 @@ impl ArchitectureOverviewRenderer {
         }
         let module_rows = module_nodes.len().max(1).div_ceil(module_columns) as i32;
         let file_start_y = 100 + (module_rows * module_row_height) + 180;
+        commands.push(CanvasDrawCommand::UpsertShape {
+            shape: CanvasShapeObject {
+                id: "lane:files-label".to_owned(),
+                layer: 5,
+                kind: CanvasShapeKind::Text,
+                points: vec![CanvasPoint {
+                    x: 80,
+                    y: file_start_y - 28,
+                }],
+                text: Some("Files lane".to_owned()),
+                style: CanvasStyle {
+                    fill_color: None,
+                    stroke_color: None,
+                    stroke_width_px: None,
+                    text_color: Some("#3b6b4d".to_owned()),
+                },
+            },
+        });
         for (index, node) in file_nodes.iter().enumerate() {
             let x = 80 + ((index % 4) as i32 * 250);
             let y = file_start_y + ((index / 4) as i32 * 125);
@@ -153,6 +196,55 @@ impl ArchitectureOverviewRenderer {
             });
         }
 
+        let status_color = if input.turn_in_flight {
+            "#9a6320"
+        } else {
+            "#315f88"
+        };
+        commands.push(CanvasDrawCommand::UpsertShape {
+            shape: CanvasShapeObject {
+                id: "status:activity".to_owned(),
+                layer: 230,
+                kind: CanvasShapeKind::Text,
+                points: vec![CanvasPoint { x: 80, y: 24 }],
+                text: Some(if input.turn_in_flight {
+                    format!("In-flight: {}", input.canvas_status)
+                } else {
+                    format!("Status: {}", input.canvas_status)
+                }),
+                style: CanvasStyle {
+                    fill_color: None,
+                    stroke_color: None,
+                    stroke_width_px: None,
+                    text_color: Some(status_color.to_owned()),
+                },
+            },
+        });
+
+        for (index, summary) in input.recent_activity.iter().rev().take(3).enumerate() {
+            commands.push(CanvasDrawCommand::UpsertShape {
+                shape: CanvasShapeObject {
+                    id: format!("summary:{index}"),
+                    layer: 231,
+                    kind: CanvasShapeKind::Text,
+                    points: vec![CanvasPoint {
+                        x: 940,
+                        y: 410 + (index as i32 * 38),
+                    }],
+                    text: Some(format!(
+                        "Done · {} · tools {} · {}",
+                        summary.user_message, summary.tool_call_count, summary.assistant_preview
+                    )),
+                    style: CanvasStyle {
+                        fill_color: None,
+                        stroke_color: None,
+                        stroke_width_px: None,
+                        text_color: Some("#3d536b".to_owned()),
+                    },
+                },
+            });
+        }
+
         commands.push(CanvasDrawCommand::SetViewportHint {
             hint: CanvasViewportHint {
                 center: None,
@@ -219,7 +311,10 @@ mod tests {
         ArchitectureNodeKind,
     };
 
-    use super::{ArchitectureOverviewRenderInput, ArchitectureOverviewRenderer, CanvasToolCard};
+    use super::{
+        ArchitectureActivitySummary, ArchitectureOverviewRenderInput, ArchitectureOverviewRenderer,
+        CanvasToolCard,
+    };
 
     #[test]
     fn architecture_renderer_outputs_deterministic_commands() {
@@ -236,6 +331,9 @@ mod tests {
             impact_target_ids: &["file:src/tools.rs".to_owned()],
             show_impact_overlay: true,
             tool_cards: &cards,
+            turn_in_flight: false,
+            canvas_status: "Idle",
+            recent_activity: &[],
             sequence: 10,
         });
         let two = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
@@ -244,6 +342,9 @@ mod tests {
             impact_target_ids: &["file:src/tools.rs".to_owned()],
             show_impact_overlay: true,
             tool_cards: &cards,
+            turn_in_flight: false,
+            canvas_status: "Idle",
+            recent_activity: &[],
             sequence: 10,
         });
 
@@ -259,6 +360,9 @@ mod tests {
             impact_target_ids: &[],
             show_impact_overlay: false,
             tool_cards: &[],
+            turn_in_flight: false,
+            canvas_status: "Idle",
+            recent_activity: &[],
             sequence: 1,
         });
 
@@ -329,6 +433,9 @@ mod tests {
             impact_target_ids: &[],
             show_impact_overlay: false,
             tool_cards: &[],
+            turn_in_flight: false,
+            canvas_status: "Idle",
+            recent_activity: &[],
             sequence: 1,
         });
 
@@ -354,6 +461,57 @@ mod tests {
         assert!(module_max_y > i32::MIN);
         assert!(file_min_y < i32::MAX);
         assert!(file_min_y > module_max_y);
+    }
+
+    #[test]
+    fn architecture_renderer_emits_in_flight_status_and_recent_activity_summaries() {
+        let graph = graph_fixture();
+        let activity = vec![
+            ArchitectureActivitySummary {
+                user_message: "inspect parser",
+                assistant_preview: "Updated parser flow",
+                tool_call_count: 2,
+            },
+            ArchitectureActivitySummary {
+                user_message: "trace cfg",
+                assistant_preview: "No config drift",
+                tool_call_count: 1,
+            },
+        ];
+
+        let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
+            graph: &graph,
+            changed_target_ids: &[],
+            impact_target_ids: &[],
+            show_impact_overlay: false,
+            tool_cards: &[],
+            turn_in_flight: true,
+            canvas_status: "Running turn for: inspect parser",
+            recent_activity: &activity,
+            sequence: 3,
+        });
+
+        let status = batch.commands.iter().find_map(|command| match command {
+            super::CanvasDrawCommand::UpsertShape { shape } if shape.id == "status:activity" => {
+                shape.text.as_deref()
+            }
+            _ => None,
+        });
+        assert_eq!(status, Some("In-flight: Running turn for: inspect parser"));
+
+        let summaries = batch
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                super::CanvasDrawCommand::UpsertShape { shape }
+                    if shape.id.starts_with("summary:") =>
+                {
+                    Some(shape.id.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(summaries.len(), 2);
     }
 
     fn graph_fixture() -> ArchitectureGraph {

@@ -23,7 +23,9 @@ use self::canvas::{
     GraphSurfaceAdapterOptions,
 };
 use self::events::{CanvasOp, StudioCommand, StudioEvent, StudioTurnResult};
-use self::renderer::{ArchitectureOverviewRenderInput, ArchitectureOverviewRenderer};
+use self::renderer::{
+    ArchitectureActivitySummary, ArchitectureOverviewRenderInput, ArchitectureOverviewRenderer,
+};
 
 const APP_TITLE: &str = "mjolne_vibes studio";
 const MAX_CANVAS_SUMMARIES: usize = 24;
@@ -608,6 +610,15 @@ impl StudioApp {
         let Some(graph) = self.canvas.graph().cloned() else {
             return;
         };
+        let recent_activity = self
+            .turn_summaries
+            .iter()
+            .map(|summary| ArchitectureActivitySummary {
+                user_message: summary.user_message.as_str(),
+                assistant_preview: summary.assistant_preview.as_str(),
+                tool_call_count: summary.tool_call_count,
+            })
+            .collect::<Vec<_>>();
 
         self.next_draw_command_sequence = self.next_draw_command_sequence.saturating_add(1);
         let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
@@ -616,6 +627,9 @@ impl StudioApp {
             impact_target_ids: &self.graph_surface.impact_target_ids,
             show_impact_overlay: self.graph_surface.impact_overlay_enabled,
             tool_cards: &self.canvas_tool_cards,
+            turn_in_flight: self.turn_in_flight,
+            canvas_status: &self.canvas_status,
+            recent_activity: &recent_activity,
             sequence: self.next_draw_command_sequence,
         });
         self.canvas.apply(CanvasOp::apply_draw_command_batch(batch));
@@ -1594,10 +1608,18 @@ mod tests {
             app.canvas.graph().map(|graph| graph.revision),
             Some(MAX_GRAPH_UPDATES_PER_FRAME as u64)
         );
+        assert_eq!(
+            app.canvas.draw_scene().last_sequence(),
+            Some(MAX_GRAPH_UPDATES_PER_FRAME as u64)
+        );
 
         app.drain_graph_updates();
         assert_eq!(
             app.canvas.graph().map(|graph| graph.revision),
+            Some(total_updates as u64)
+        );
+        assert_eq!(
+            app.canvas.draw_scene().last_sequence(),
             Some(total_updates as u64)
         );
 

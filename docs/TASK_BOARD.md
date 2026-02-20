@@ -9,8 +9,7 @@ Current execution board for maintenance work.
 
 ## Active tasks
 
-- [ ] [DC-05] Add test coverage for reducer invariants, renderer translation correctness, and bounded per-frame command drain behavior.
-- [ ] [DC-06] Refine studio UX for “understand agent work” use case (change lanes, in-flight annotations, completed-work summaries) as renderer output.
+- None currently.
 
 ## Backlog candidates
 
