@@ -23,6 +23,7 @@ use self::canvas::{
     GraphSurfaceAdapterOptions,
 };
 use self::events::{CanvasOp, StudioCommand, StudioEvent, StudioTurnResult};
+use self::renderer::{ArchitectureOverviewRenderInput, ArchitectureOverviewRenderer};
 
 const APP_TITLE: &str = "mjolne_vibes studio";
 const MAX_CANVAS_SUMMARIES: usize = 24;
@@ -331,6 +332,7 @@ struct StudioApp {
     chat_panel_expanded: bool,
     canvas_viewport: CanvasViewport,
     canvas_tool_cards: Vec<CanvasToolCard>,
+    next_draw_command_sequence: u64,
     next_tool_card_id: u64,
     turn_summaries: Vec<CanvasTurnSummary>,
     theme_applied: bool,
@@ -366,6 +368,7 @@ impl StudioApp {
             chat_panel_expanded: true,
             canvas_viewport: CanvasViewport::default(),
             canvas_tool_cards: Vec::new(),
+            next_draw_command_sequence: 0,
             next_tool_card_id: 0,
             turn_summaries: Vec::new(),
             theme_applied: false,
@@ -593,11 +596,29 @@ impl StudioApp {
             .apply_refresh(self.canvas.graph(), &update.graph, &trigger);
         self.canvas.apply(CanvasOp::set_scene_graph(update.graph));
         self.apply_graph_visualization();
+        self.render_architecture_overview_scene();
         self.canvas_status = self.graph_surface.refresh_status_label();
     }
 
     fn apply_graph_visualization(&mut self) {
         self.graph_surface.apply_visualization(&mut self.canvas);
+    }
+
+    fn render_architecture_overview_scene(&mut self) {
+        let Some(graph) = self.canvas.graph().cloned() else {
+            return;
+        };
+
+        self.next_draw_command_sequence = self.next_draw_command_sequence.saturating_add(1);
+        let batch = ArchitectureOverviewRenderer::render(ArchitectureOverviewRenderInput {
+            graph: &graph,
+            changed_target_ids: &self.graph_surface.changed_target_ids,
+            impact_target_ids: &self.graph_surface.impact_target_ids,
+            show_impact_overlay: self.graph_surface.impact_overlay_enabled,
+            tool_cards: &self.canvas_tool_cards,
+            sequence: self.next_draw_command_sequence,
+        });
+        self.canvas.apply(CanvasOp::apply_draw_command_batch(batch));
     }
 
     fn apply_event(&mut self, event: StudioEvent) {
@@ -664,6 +685,8 @@ impl StudioApp {
             let extra = self.canvas_tool_cards.len() - MAX_CANVAS_TOOL_CARDS;
             self.canvas_tool_cards.drain(0..extra);
         }
+
+        self.render_architecture_overview_scene();
     }
 
     fn submit_prompt(&mut self) {
@@ -1002,6 +1025,7 @@ impl StudioApp {
         });
         if overlay_changed {
             self.apply_graph_visualization();
+            self.render_architecture_overview_scene();
         }
 
         if self.graph_surface.inspector_enabled {

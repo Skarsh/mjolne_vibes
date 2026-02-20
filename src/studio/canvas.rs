@@ -6,7 +6,7 @@ use crate::graph::{ArchitectureGraph, ArchitectureNode, ArchitectureNodeKind};
 
 use super::events::{
     CanvasConnectorObject, CanvasDrawCommand, CanvasDrawCommandBatch, CanvasGroupObject, CanvasOp,
-    CanvasSceneData, CanvasShapeObject, CanvasViewportHint,
+    CanvasSceneData, CanvasShapeKind, CanvasShapeObject, CanvasViewportHint,
 };
 
 const MIN_CANVAS_SURFACE_WIDTH: f32 = 320.0;
@@ -423,24 +423,25 @@ impl<'a> CanvasSurfaceAdapter<'a> {
     ) {
         match self {
             Self::ArchitectureGraph { options } => {
-                render_graph_snapshot(
+                let _ = (
+                    options.changed_node_ids,
+                    options.impact_node_ids,
+                    options.show_impact_overlay,
+                    options.tool_cards,
+                );
+                render_draw_scene(
                     ui,
                     state,
                     viewport,
-                    GraphRenderOptions {
-                        changed_node_ids: options.changed_node_ids,
-                        impact_node_ids: options.impact_node_ids,
-                        show_impact_overlay: options.show_impact_overlay,
-                        show_graph_legend: options.show_graph_legend,
-                        surface_height,
-                        tool_cards: options.tool_cards,
-                    },
+                    surface_height,
+                    options.show_graph_legend,
                 );
             }
         }
     }
 }
 
+#[allow(dead_code)]
 struct GraphRenderOptions<'a> {
     changed_node_ids: &'a [String],
     impact_node_ids: &'a [String],
@@ -450,6 +451,7 @@ struct GraphRenderOptions<'a> {
     tool_cards: &'a [CanvasToolCard],
 }
 
+#[allow(dead_code)]
 struct CanvasSurfaceFrame {
     response: egui::Response,
     painter: egui::Painter,
@@ -545,6 +547,7 @@ fn paint_canvas_guides(
     }
 }
 
+#[allow(dead_code)]
 fn render_graph_snapshot(
     ui: &mut egui::Ui,
     state: &CanvasState,
@@ -758,6 +761,189 @@ fn render_graph_snapshot(
     }
 }
 
+fn render_draw_scene(
+    ui: &mut egui::Ui,
+    state: &CanvasState,
+    viewport: &mut CanvasViewport,
+    surface_height: f32,
+    show_legend: bool,
+) {
+    let surface = render_canvas_surface_frame(ui, viewport, surface_height);
+    let scene = state.draw_scene();
+
+    if scene.ordered_object_ids().is_empty() {
+        surface.painter.text(
+            surface.frame.center(),
+            egui::Align2::CENTER_CENTER,
+            "Canvas preview pending initial refresh",
+            egui::FontId::proportional(13.0),
+            ui.visuals().weak_text_color(),
+        );
+        return;
+    }
+
+    let shape_centers = scene
+        .shapes()
+        .into_iter()
+        .map(|shape| (shape.id.as_str(), draw_shape_center(shape)))
+        .collect::<BTreeMap<_, _>>();
+
+    for connector in scene.connectors() {
+        let Some(from) = shape_centers.get(connector.from_id.as_str()).copied() else {
+            continue;
+        };
+        let Some(to) = shape_centers.get(connector.to_id.as_str()).copied() else {
+            continue;
+        };
+        let from = viewport.transformed_position(from, surface.frame.center());
+        let to = viewport.transformed_position(to, surface.frame.center());
+        let stroke = egui::Stroke::new(
+            connector.style.stroke_width_px.unwrap_or(1) as f32,
+            parse_color(
+                connector.style.stroke_color.as_deref(),
+                egui::Color32::from_rgb(125, 145, 169),
+            ),
+        );
+        surface.painter.line_segment([from, to], stroke);
+    }
+
+    for shape in scene.shapes() {
+        draw_shape(
+            &surface.painter,
+            shape,
+            viewport,
+            surface.frame.center(),
+            ui.visuals().text_color(),
+        );
+    }
+
+    if show_legend {
+        render_legend(ui, &surface.painter, surface.frame, viewport.zoom_percent());
+    }
+}
+
+fn draw_shape_center(shape: &CanvasShapeObject) -> egui::Pos2 {
+    if shape.points.is_empty() {
+        return egui::Pos2::ZERO;
+    }
+    if shape.points.len() == 1 {
+        return egui::pos2(shape.points[0].x as f32, shape.points[0].y as f32);
+    }
+
+    let min_x = shape.points.iter().map(|point| point.x).min().unwrap_or(0) as f32;
+    let max_x = shape.points.iter().map(|point| point.x).max().unwrap_or(0) as f32;
+    let min_y = shape.points.iter().map(|point| point.y).min().unwrap_or(0) as f32;
+    let max_y = shape.points.iter().map(|point| point.y).max().unwrap_or(0) as f32;
+    egui::pos2((min_x + max_x) * 0.5, (min_y + max_y) * 0.5)
+}
+
+fn draw_shape(
+    painter: &egui::Painter,
+    shape: &CanvasShapeObject,
+    viewport: &CanvasViewport,
+    canvas_center: egui::Pos2,
+    default_text_color: egui::Color32,
+) {
+    let fill_color = parse_color(
+        shape.style.fill_color.as_deref(),
+        egui::Color32::TRANSPARENT,
+    );
+    let stroke_color = parse_color(
+        shape.style.stroke_color.as_deref(),
+        egui::Color32::from_rgb(78, 101, 126),
+    );
+    let text_color = parse_color(shape.style.text_color.as_deref(), default_text_color);
+    let stroke = egui::Stroke::new(
+        shape.style.stroke_width_px.unwrap_or(1) as f32,
+        stroke_color,
+    );
+
+    let points = shape
+        .points
+        .iter()
+        .map(|point| {
+            viewport.transformed_position(egui::pos2(point.x as f32, point.y as f32), canvas_center)
+        })
+        .collect::<Vec<_>>();
+
+    match shape.kind {
+        CanvasShapeKind::Rectangle => {
+            if points.len() >= 2 {
+                let rect = egui::Rect::from_two_pos(points[0], points[1]);
+                painter.rect_filled(rect, 8.0, fill_color);
+                painter.rect_stroke(rect, 8.0, stroke, egui::StrokeKind::Outside);
+                if let Some(text) = &shape.text {
+                    painter.text(
+                        rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        clipped_label(text, 36),
+                        egui::FontId::proportional(12.0),
+                        text_color,
+                    );
+                }
+            }
+        }
+        CanvasShapeKind::Ellipse => {
+            let center = points.first().copied().unwrap_or(canvas_center);
+            let radius = if points.len() >= 2 {
+                center.distance(points[1]).max(8.0)
+            } else {
+                12.0
+            };
+            painter.circle_filled(center, radius, fill_color);
+            painter.circle_stroke(center, radius, stroke);
+            if let Some(text) = &shape.text {
+                painter.text(
+                    center,
+                    egui::Align2::CENTER_CENTER,
+                    clipped_label(text, 24),
+                    egui::FontId::proportional(11.0),
+                    text_color,
+                );
+            }
+        }
+        CanvasShapeKind::Line => {
+            if points.len() >= 2 {
+                painter.line_segment([points[0], points[1]], stroke);
+            }
+        }
+        CanvasShapeKind::Path => {
+            if points.len() >= 2 {
+                painter.add(egui::Shape::line(points, stroke));
+            }
+        }
+        CanvasShapeKind::Text => {
+            let anchor = points.first().copied().unwrap_or(canvas_center);
+            let text = shape.text.as_deref().unwrap_or("");
+            painter.text(
+                anchor,
+                egui::Align2::LEFT_TOP,
+                clipped_label(text, 80),
+                egui::FontId::proportional(10.8),
+                text_color,
+            );
+        }
+    }
+}
+
+fn parse_color(value: Option<&str>, fallback: egui::Color32) -> egui::Color32 {
+    let Some(raw) = value else {
+        return fallback;
+    };
+    let Some(hex) = raw.strip_prefix('#') else {
+        return fallback;
+    };
+    if hex.len() != 6 {
+        return fallback;
+    }
+
+    let parse = |range: std::ops::Range<usize>| u8::from_str_radix(&hex[range], 16).ok();
+    match (parse(0..2), parse(2..4), parse(4..6)) {
+        (Some(r), Some(g), Some(b)) => egui::Color32::from_rgb(r, g, b),
+        _ => fallback,
+    }
+}
+
 fn render_legend(ui: &egui::Ui, painter: &egui::Painter, frame: egui::Rect, zoom_percent: u32) {
     let origin = frame.right_top() + egui::vec2(-188.0, 12.0);
     let bg = egui::Rect::from_min_size(origin, egui::vec2(176.0, 94.0));
@@ -802,6 +988,7 @@ fn render_legend(ui: &egui::Ui, painter: &egui::Painter, frame: egui::Rect, zoom
     );
 }
 
+#[allow(dead_code)]
 fn render_tool_cards(painter: &egui::Painter, frame: egui::Rect, tool_cards: &[CanvasToolCard]) {
     const CARD_WIDTH: f32 = 254.0;
     const CARD_HEIGHT: f32 = 58.0;
@@ -845,6 +1032,7 @@ fn render_tool_cards(painter: &egui::Painter, frame: egui::Rect, tool_cards: &[C
     }
 }
 
+#[allow(dead_code)]
 fn compute_node_positions(
     graph: &ArchitectureGraph,
     bounds: egui::Rect,
@@ -880,6 +1068,7 @@ fn compute_node_positions(
     positions
 }
 
+#[allow(dead_code)]
 fn place_nodes_in_rect(
     nodes: &[&ArchitectureNode],
     rect: egui::Rect,
