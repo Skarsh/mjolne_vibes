@@ -80,9 +80,11 @@ Current execution board for maintenance work.
       - added compact status strip in top bar (provider/model, graph refresh trigger, canvas status)
       - upgraded mode controls (`Before/After`, `Focus`) to animated high-contrast pills
       - wrapped canvas render region in explicit stage frame for clearer visual boundary
+      - added snapshot-navigation motion cue via pulsed snapshot metadata emphasis on selection changes
+      - tightened small-width density:
+        - compact toolbar labels (`B/A`, `F On`) with wrapped controls
+        - chat pane hides workspace chip under narrow widths and reduces composer reservation
     - pending:
-      - refine motion cues for snapshot navigation transitions
-      - tighten spacing/density for chat rail and canvas toolbar on small widths
       - optional second-pass visual tune after user review feedback
 
 ## Backlog candidates

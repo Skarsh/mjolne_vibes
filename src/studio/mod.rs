@@ -421,6 +421,7 @@ struct StudioApp {
     pending_turn_snapshot: Option<PendingTurnSnapshot>,
     turn_snapshots: Vec<CanvasTurnSnapshot>,
     selected_snapshot_index: Option<usize>,
+    snapshot_transition_pulse: bool,
     canvas_diff_mode: CanvasDiffMode,
     turn_summaries: Vec<CanvasTurnSummary>,
     theme_applied: bool,
@@ -464,6 +465,7 @@ impl StudioApp {
             pending_turn_snapshot: None,
             turn_snapshots: Vec::new(),
             selected_snapshot_index: None,
+            snapshot_transition_pulse: false,
             canvas_diff_mode: CanvasDiffMode::Live,
             turn_summaries: Vec::new(),
             theme_applied: false,
@@ -891,7 +893,8 @@ impl StudioApp {
     }
 
     fn render_chat_pane(&mut self, ui: &mut egui::Ui) {
-        const COMPOSER_SECTION_HEIGHT: f32 = 188.0;
+        let compact_width = ui.available_width() < 320.0;
+        let composer_section_height = if compact_width { 170.0 } else { 188.0 };
 
         ui.horizontal_wrapped(|ui| {
             ui.label(
@@ -916,20 +919,23 @@ impl StudioApp {
                 studio_border(),
                 studio_muted_text(),
             );
-            let workspace_label = truncate_ui_text(&self.workspace_root.display().to_string(), 38);
-            Self::chip(
-                ui,
-                format!("root {workspace_label}"),
-                egui::Color32::from_rgb(239, 246, 252),
-                studio_border(),
-                studio_muted_text(),
-            );
+            if !compact_width {
+                let workspace_label =
+                    truncate_ui_text(&self.workspace_root.display().to_string(), 38);
+                Self::chip(
+                    ui,
+                    format!("root {workspace_label}"),
+                    egui::Color32::from_rgb(239, 246, 252),
+                    studio_border(),
+                    studio_muted_text(),
+                );
+            }
         });
 
         Self::card_frame(ui).show(ui, |ui| {
             egui::ScrollArea::vertical()
                 .stick_to_bottom(true)
-                .max_height((ui.available_height() - COMPOSER_SECTION_HEIGHT).max(140.0))
+                .max_height((ui.available_height() - composer_section_height).max(140.0))
                 .show(ui, |ui| {
                     for entry in &self.chat_history {
                         self.render_chat_entry(ui, entry);
@@ -1055,6 +1061,7 @@ impl StudioApp {
     }
 
     fn render_canvas_pane(&mut self, ui: &mut egui::Ui) {
+        let compact_toolbar = ui.available_width() < 840.0;
         ui.horizontal(|ui| {
             ui.label(
                 egui::RichText::new("Canvas")
@@ -1069,7 +1076,7 @@ impl StudioApp {
                     .corner_radius(11)
                     .inner_margin(egui::Margin::symmetric(7, 4))
                     .show(ui, |ui| {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             if ui.button("Fit").clicked() {
                                 self.canvas_viewport.fit_to_view();
                             }
@@ -1103,7 +1110,13 @@ impl StudioApp {
                             let before_after_selected =
                                 self.canvas_diff_mode == CanvasDiffMode::BeforeAfterLatestTurn;
                             let before_after_label = if before_after_selected {
-                                "Before/After On"
+                                if compact_toolbar {
+                                    "B/A On"
+                                } else {
+                                    "Before/After On"
+                                }
+                            } else if compact_toolbar {
+                                "B/A"
                             } else {
                                 "Before/After"
                             };
@@ -1120,7 +1133,11 @@ impl StudioApp {
                             }
                             let focus_selected =
                                 self.canvas_diff_mode == CanvasDiffMode::FocusLatestTurn;
-                            let focus_label = if focus_selected { "Focus On" } else { "Focus" };
+                            let focus_label = if focus_selected {
+                                if compact_toolbar { "F On" } else { "Focus On" }
+                            } else {
+                                "Focus"
+                            };
                             if self
                                 .mode_toggle_button(ui, focus_label, focus_selected)
                                 .clicked()
@@ -1149,12 +1166,23 @@ impl StudioApp {
             });
         });
         if let Some(snapshot) = self.selected_snapshot() {
+            let pulse = ui.ctx().animate_bool(
+                ui.id().with("snapshot-transition-pulse"),
+                self.snapshot_transition_pulse,
+            );
+            let pulse_fill =
+                egui::Color32::from_rgb(220, 239, 253).gamma_multiply(0.9 + pulse * 0.2);
+            let pulse_stroke = if pulse > 0.01 {
+                studio_accent().gamma_multiply(0.72 + pulse * 0.28)
+            } else {
+                studio_border()
+            };
             ui.horizontal_wrapped(|ui| {
                 Self::chip(
                     ui,
                     format!("turn {}", snapshot.turn_id),
-                    egui::Color32::from_rgb(236, 245, 253),
-                    studio_border(),
+                    pulse_fill,
+                    pulse_stroke,
                     studio_muted_text(),
                 );
                 let baseline = snapshot
@@ -1251,6 +1279,7 @@ impl StudioApp {
             self.turn_snapshots.drain(0..extra);
         }
         self.selected_snapshot_index = self.turn_snapshots.len().checked_sub(1);
+        self.bump_snapshot_transition();
     }
 
     fn selected_snapshot_index(&self) -> Option<usize> {
@@ -1271,7 +1300,11 @@ impl StudioApp {
         let Some(current) = self.selected_snapshot_index() else {
             return;
         };
-        self.selected_snapshot_index = Some(current.saturating_sub(1));
+        let next = current.saturating_sub(1);
+        if next != current {
+            self.selected_snapshot_index = Some(next);
+            self.bump_snapshot_transition();
+        }
     }
 
     fn select_next_snapshot(&mut self) {
@@ -1279,7 +1312,15 @@ impl StudioApp {
             return;
         };
         let last_index = self.turn_snapshots.len().saturating_sub(1);
-        self.selected_snapshot_index = Some((current + 1).min(last_index));
+        let next = (current + 1).min(last_index);
+        if next != current {
+            self.selected_snapshot_index = Some(next);
+            self.bump_snapshot_transition();
+        }
+    }
+
+    fn bump_snapshot_transition(&mut self) {
+        self.snapshot_transition_pulse = !self.snapshot_transition_pulse;
     }
 
     fn render_chat_entry(&self, ui: &mut egui::Ui, entry: &ChatEntry) {
