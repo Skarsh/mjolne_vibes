@@ -39,39 +39,55 @@ const MAX_IMPACT_NODE_ANNOTATIONS: usize = 12;
 const MAX_GRAPH_UPDATES_PER_FRAME: usize = 4;
 
 fn studio_text() -> egui::Color32 {
-    egui::Color32::from_rgb(23, 33, 44)
+    egui::Color32::from_rgb(19, 29, 40)
 }
 
 fn studio_muted_text() -> egui::Color32 {
-    egui::Color32::from_rgb(90, 105, 123)
+    egui::Color32::from_rgb(94, 109, 127)
 }
 
-fn studio_surface() -> egui::Color32 {
-    egui::Color32::from_rgb(238, 245, 252)
+fn studio_app_bg() -> egui::Color32 {
+    egui::Color32::from_rgb(219, 231, 243)
 }
 
-fn studio_surface_alt() -> egui::Color32 {
-    egui::Color32::from_rgb(247, 252, 255)
+fn studio_panel_surface() -> egui::Color32 {
+    egui::Color32::from_rgb(238, 246, 252)
+}
+
+fn studio_panel_surface_alt() -> egui::Color32 {
+    egui::Color32::from_rgb(246, 251, 255)
+}
+
+fn studio_stage_surface() -> egui::Color32 {
+    egui::Color32::from_rgb(230, 240, 249)
 }
 
 fn studio_panel_tint() -> egui::Color32 {
-    egui::Color32::from_rgb(226, 238, 250)
+    egui::Color32::from_rgb(210, 226, 242)
 }
 
 fn studio_border() -> egui::Color32 {
-    egui::Color32::from_rgb(174, 196, 221)
+    egui::Color32::from_rgb(153, 179, 208)
 }
 
 fn studio_border_strong() -> egui::Color32 {
-    egui::Color32::from_rgb(130, 161, 196)
+    egui::Color32::from_rgb(98, 137, 176)
 }
 
 fn studio_accent() -> egui::Color32 {
-    egui::Color32::from_rgb(12, 119, 173)
+    egui::Color32::from_rgb(16, 112, 165)
 }
 
 fn studio_accent_soft() -> egui::Color32 {
-    egui::Color32::from_rgb(211, 232, 248)
+    egui::Color32::from_rgb(206, 229, 247)
+}
+
+fn studio_mode_active() -> egui::Color32 {
+    egui::Color32::from_rgb(24, 129, 187)
+}
+
+fn studio_mode_inactive() -> egui::Color32 {
+    egui::Color32::from_rgb(226, 236, 246)
 }
 
 pub fn run_studio(settings: &AgentSettings) -> Result<()> {
@@ -473,19 +489,19 @@ impl StudioApp {
 
         style.text_styles.insert(
             egui::TextStyle::Heading,
-            egui::FontId::new(22.0, egui::FontFamily::Proportional),
+            egui::FontId::new(24.0, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Button,
-            egui::FontId::new(13.8, egui::FontFamily::Proportional),
+            egui::FontId::new(13.4, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Body,
-            egui::FontId::new(13.8, egui::FontFamily::Proportional),
+            egui::FontId::new(14.1, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Small,
-            egui::FontId::new(11.8, egui::FontFamily::Proportional),
+            egui::FontId::new(11.2, egui::FontFamily::Proportional),
         );
         style.text_styles.insert(
             egui::TextStyle::Monospace,
@@ -494,11 +510,11 @@ impl StudioApp {
 
         let mut visuals = egui::Visuals::light();
         visuals.override_text_color = Some(studio_text());
-        visuals.panel_fill = studio_surface();
+        visuals.panel_fill = studio_app_bg();
         visuals.extreme_bg_color = egui::Color32::from_rgb(255, 255, 255);
         visuals.faint_bg_color = studio_panel_tint();
-        visuals.code_bg_color = egui::Color32::from_rgb(236, 243, 251);
-        visuals.window_fill = studio_surface_alt();
+        visuals.code_bg_color = egui::Color32::from_rgb(233, 242, 251);
+        visuals.window_fill = studio_panel_surface_alt();
         visuals.window_stroke = egui::Stroke::new(1.0, studio_border());
         visuals.menu_corner_radius = 12.into();
         visuals.window_corner_radius = 12.into();
@@ -509,12 +525,12 @@ impl StudioApp {
         visuals.widgets.hovered.corner_radius = 10.into();
         visuals.widgets.active.corner_radius = 10.into();
         visuals.widgets.open.corner_radius = 10.into();
-        visuals.widgets.noninteractive.bg_fill = studio_surface_alt();
+        visuals.widgets.noninteractive.bg_fill = studio_panel_surface_alt();
         visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, studio_text());
-        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(239, 247, 254);
-        visuals.widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(233, 242, 251);
-        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(225, 238, 250);
-        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(214, 231, 246);
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(236, 245, 253);
+        visuals.widgets.inactive.weak_bg_fill = egui::Color32::from_rgb(229, 240, 250);
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(220, 235, 247);
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(207, 227, 244);
         visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, studio_border());
         visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, studio_border_strong());
         visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, studio_accent());
@@ -532,7 +548,7 @@ impl StudioApp {
 
     fn card_frame(_ui: &egui::Ui) -> egui::Frame {
         egui::Frame::new()
-            .fill(studio_surface_alt())
+            .fill(studio_panel_surface_alt())
             .stroke(egui::Stroke::new(1.0, studio_border()))
             .corner_radius(12)
             .inner_margin(egui::Margin::symmetric(12, 10))
@@ -609,16 +625,12 @@ impl StudioApp {
             if ui.add(toggle_button).clicked() {
                 self.chat_panel_expanded = !self.chat_panel_expanded;
             }
-            ui.separator();
-            ui.label(egui::RichText::new("Studio").strong().color(studio_text()));
+            ui.add_space(6.0);
             ui.label(
-                egui::RichText::new(format!(
-                    "{} / {}",
-                    self.settings.model_provider, self.settings.model
-                ))
-                .small()
-                .monospace()
-                .color(studio_muted_text()),
+                egui::RichText::new("Studio")
+                    .heading()
+                    .strong()
+                    .color(studio_text()),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if self.turn_in_flight {
@@ -632,6 +644,35 @@ impl StudioApp {
                     status_text_color,
                 );
             });
+        });
+        ui.add_space(2.0);
+        ui.horizontal_wrapped(|ui| {
+            Self::chip(
+                ui,
+                format!("{} / {}", self.settings.model_provider, self.settings.model),
+                egui::Color32::from_rgb(231, 243, 252),
+                studio_border(),
+                studio_muted_text(),
+            );
+            let refresh = self
+                .graph_surface
+                .last_refresh_trigger
+                .as_deref()
+                .unwrap_or("not yet refreshed");
+            Self::chip(
+                ui,
+                format!("graph {refresh}"),
+                egui::Color32::from_rgb(235, 242, 250),
+                studio_border(),
+                studio_muted_text(),
+            );
+            Self::chip(
+                ui,
+                truncate_ui_text(&self.canvas_status, 52),
+                egui::Color32::from_rgb(233, 246, 240),
+                egui::Color32::from_rgb(143, 184, 167),
+                egui::Color32::from_rgb(35, 104, 81),
+            );
         });
     }
 
@@ -919,7 +960,7 @@ impl StudioApp {
                         .color(egui::Color32::from_rgb(250, 253, 255)),
                 )
                 .fill(studio_accent())
-                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(31, 84, 151)))
+                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(27, 84, 136)))
                 .min_size(egui::vec2(112.0, 31.0));
                 if ui.add_enabled(can_send, send_button).clicked() {
                     self.submit_prompt();
@@ -1023,8 +1064,8 @@ impl StudioApp {
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(222, 238, 251))
-                    .stroke(egui::Stroke::new(1.0, studio_border_strong()))
+                    .fill(egui::Color32::from_rgb(214, 229, 243))
+                    .stroke(egui::Stroke::new(1.0, studio_border()))
                     .corner_radius(11)
                     .inner_margin(egui::Margin::symmetric(7, 4))
                     .show(ui, |ui| {
@@ -1066,8 +1107,8 @@ impl StudioApp {
                             } else {
                                 "Before/After"
                             };
-                            if ui
-                                .selectable_label(before_after_selected, before_after_label)
+                            if self
+                                .mode_toggle_button(ui, before_after_label, before_after_selected)
                                 .clicked()
                             {
                                 self.canvas_diff_mode = if before_after_selected {
@@ -1080,7 +1121,10 @@ impl StudioApp {
                             let focus_selected =
                                 self.canvas_diff_mode == CanvasDiffMode::FocusLatestTurn;
                             let focus_label = if focus_selected { "Focus On" } else { "Focus" };
-                            if ui.selectable_label(focus_selected, focus_label).clicked() {
+                            if self
+                                .mode_toggle_button(ui, focus_label, focus_selected)
+                                .clicked()
+                            {
                                 self.canvas_diff_mode = if focus_selected {
                                     CanvasDiffMode::Live
                                 } else {
@@ -1142,7 +1186,43 @@ impl StudioApp {
         }
 
         let surface_height = ui.available_height().max(240.0);
-        self.render_canvas_surface(ui, surface_height);
+        egui::Frame::new()
+            .fill(studio_stage_surface())
+            .stroke(egui::Stroke::new(1.0, studio_border_strong()))
+            .corner_radius(12)
+            .inner_margin(egui::Margin::symmetric(8, 8))
+            .show(ui, |ui| self.render_canvas_surface(ui, surface_height));
+    }
+
+    fn mode_toggle_button(&self, ui: &mut egui::Ui, label: &str, selected: bool) -> egui::Response {
+        let anim = ui
+            .ctx()
+            .animate_bool(ui.id().with(format!("mode-{label}")), selected);
+        let fill = if selected {
+            studio_mode_active().gamma_multiply(0.65 + (0.35 * anim))
+        } else {
+            studio_mode_inactive()
+        };
+        let text_color = if selected {
+            egui::Color32::from_rgb(247, 252, 255)
+        } else {
+            studio_text()
+        };
+        let stroke = if selected {
+            studio_accent()
+        } else {
+            studio_border_strong()
+        };
+        ui.add(
+            egui::Button::new(
+                egui::RichText::new(label)
+                    .small()
+                    .strong()
+                    .color(text_color),
+            )
+            .fill(fill)
+            .stroke(egui::Stroke::new(1.0, stroke)),
+        )
     }
 
     fn maybe_finalize_turn_snapshot(
@@ -1352,7 +1432,7 @@ impl eframe::App for StudioApp {
         self.drain_graph_updates();
 
         egui::TopBottomPanel::top("studio_header")
-            .exact_height(42.0)
+            .exact_height(78.0)
             .frame(
                 egui::Frame::new()
                     .fill(studio_panel_tint())
@@ -1369,7 +1449,7 @@ impl eframe::App for StudioApp {
                 .max_width(420.0)
                 .frame(
                     egui::Frame::new()
-                        .fill(studio_surface())
+                        .fill(studio_panel_surface())
                         .inner_margin(egui::Margin::symmetric(11, 10)),
                 )
                 .show(ctx, |ui| self.render_chat_pane(ui));
@@ -1381,7 +1461,7 @@ impl eframe::App for StudioApp {
                 .max_width(52.0)
                 .frame(
                     egui::Frame::new()
-                        .fill(studio_surface())
+                        .fill(studio_panel_surface())
                         .inner_margin(egui::Margin::symmetric(6, 8)),
                 )
                 .show(ctx, |ui| self.render_chat_rail(ui));
@@ -1390,7 +1470,7 @@ impl eframe::App for StudioApp {
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::new()
-                    .fill(studio_surface())
+                    .fill(studio_panel_surface())
                     .inner_margin(egui::Margin::symmetric(12, 10)),
             )
             .show(ctx, |ui| self.render_canvas_pane(ui));
